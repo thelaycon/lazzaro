@@ -1,9 +1,12 @@
-from dataclasses import dataclass, field, asdict
-from typing import List, Optional
 import time
+from dataclasses import asdict, dataclass, field
+from typing import List, Optional
+
 
 @dataclass
 class Node:
+    """This represent a Node N in the whole graph system and represents a memory unit."""
+
     id: str
     content: str
     embedding: List[float] = field(default_factory=list)
@@ -23,6 +26,8 @@ class Node:
 
 @dataclass
 class Edge:
+    """The edge E serves as a directed connection between Nodes"""
+
     source: str
     target: str
     weight: float = 1.0

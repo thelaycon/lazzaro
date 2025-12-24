@@ -1,2 +1,0 @@
-[console_scripts]
-lazzaro-cli = lazzaro.cli.main:entry_point

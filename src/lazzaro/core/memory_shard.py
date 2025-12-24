@@ -1,8 +1,13 @@
 import time
-from typing import Dict, Tuple, List
-from ..models.graph import Node, Edge
+from typing import Dict, List, Tuple
+
+from ..models.graph import Edge, Node
+
 
 class MemoryShard:
+    """The MemoryShard allows us to group or split memories shards.
+    These shards are semantic in nature rather than the traditional database one."""
+
     def __init__(self, shard_key: str):
         self.shard_key = shard_key
         self.nodes: Dict[str, Node] = {}
@@ -10,11 +15,16 @@ class MemoryShard:
         self.last_accessed = time.time()
         self.access_count = 0
 
-    def add_node(self, node: Node):
+    def add_node(self, node: Node) -> None:
+        """To add a node, the node inherits the shard key of the MemoryShard class
+        and is added into the nodes hashmap."""
         node.shard_key = self.shard_key
         self.nodes[node.id] = node
 
-    def add_edge(self, edge: Edge):
+    def add_edge(self, edge: Edge) -> None:
+        """
+        The Edge contains a source and a target which becomes the key of the edge hashmap
+        """
         key = (edge.source, edge.target)
         if key in self.edges:
             self.edges[key].weight = min(1.0, self.edges[key].weight + 0.1)
@@ -34,10 +44,10 @@ class MemoryShard:
     def apply_temporal_decay(self, decay_rate: float = 0.01) -> None:
         """Applies Non-Linear Sigmoidal Decay"""
         for edge in self.edges.values():
-            edge.weight *= (1 - decay_rate)
+            edge.weight *= 1 - decay_rate
 
         for node in self.nodes.values():
-            # NEW: Sigmoidal/Asymptotic Decay flattening at 0.2
+            # Sigmoidal/Asymptotic Decay flattening at 0.2
             # Instead of simple multiplication, we decay the portion above 0.2
             # This ensures node.salience never mathematically drops below 0.2
             floor = 0.2
