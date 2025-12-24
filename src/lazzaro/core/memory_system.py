@@ -216,9 +216,9 @@ class MemorySystem:
                     memory_texts.append(f"- {node.content}")
                     self.buffer.update_access(nid)
             if memory_texts:
-                context_parts.append(f"Relevant Past Memories:\n" + "\n".join(memory_texts) + "\n")
+                context_parts.append(f"Relevant Information from Past Conversations (You MUST use this):\n" + "\n".join(memory_texts) + "\n")
 
-        system_prompt = "You are a helpful assistant with access to the user's profile and past memories. Use this context to provide personalized responses."
+        system_prompt = "You are a helpful assistant with access to the user's profile and past memories. These memories are factual records of the user's life and preferences. You MUST use this context to answer questions about the user."
         messages = [{"role": "system", "content": system_prompt}]
 
         if context_parts:
@@ -238,11 +238,8 @@ class MemorySystem:
         if retrieved_ids:
             print("   Retrieved Nodes:")
             for nid in retrieved_ids:
-                node = self.buffer.get_node(nid)
                 if node:
                     snippet = node.content[:60] + "..." if len(node.content) > 60 else node.content
-                    print(f"   • [{nid}] ({node.shard_key}) {snippet}")
-
                     print(f"   • [{nid}] ({node.shard_key}) {snippet}")
         return response
 
@@ -287,9 +284,9 @@ class MemorySystem:
                     memory_texts.append(f"- {node.content}")
                     self.buffer.update_access(nid)
             if memory_texts:
-                context_parts.append(f"Relevant Past Memories:\n" + "\n".join(memory_texts) + "\n")
+                context_parts.append(f"Relevant Information from Past Conversations (You MUST use this):\n" + "\n".join(memory_texts) + "\n")
 
-        system_prompt = "You are a helpful assistant with access to the user's profile and past memories. Use this context to provide personalized responses."
+        system_prompt = "You are a helpful assistant with access to the user's profile and past memories. These memories are factual records of the user's life and preferences. You MUST use this context to answer questions about the user."
         messages = [{"role": "system", "content": system_prompt}]
 
         if context_parts:
@@ -364,7 +361,23 @@ class MemorySystem:
                 all_scores.append((node_id, score))
 
         all_scores.sort(key=lambda x: x[1], reverse=True)
-        retrieved = [nid for nid, score in all_scores[:5] if score > 0.25]
+        
+        # Filter duplicates and select top 5
+        seen_content = set()
+        for nid, score in all_scores:
+            if score <= 0.25:
+                continue
+            
+            if len(retrieved) >= 5:
+                break
+
+            node = self.buffer.get_node(nid)
+            if node:
+                # Deduplication: specific enough content shouldn't be repeated
+                if node.content in seen_content:
+                    continue
+                seen_content.add(node.content)
+                retrieved.append(nid)
 
         if self.query_cache:
             self.query_cache.set_results(query_text, retrieved)
@@ -373,6 +386,10 @@ class MemorySystem:
     def _get_relevant_shards(self, query: str, max_shards: int = 3) -> List[str]:
         if not self.enable_sharding or not self.shards:
             return ["default"]
+
+        # Optimization: If few shards exist, search all to avoid missing relevant info
+        if len(self.shards) <= 5:
+            return list(self.shards.keys())
 
         shard_scores = []
         for shard_key, shard in self.shards.items():
@@ -492,10 +509,23 @@ Return JSON: {"memories": [{"content": "...", "type": "semantic|episodic|procedu
             if "```json" in response:
                 response = response.split("```json")[1].split("```")[0].strip()
             data = json.loads(response)
-            memories = data.get("memories", [])
+            
+            # Handle both {"memories": [...]} and [...] formats
+            if isinstance(data, dict):
+                memories = data.get("memories", [])
+            elif isinstance(data, list):
+                memories = data
+            else:
+                print(f"⚠ Unexpected data type: {type(data)}")
+                return
         except json.JSONDecodeError as e:
             print(f"⚠ Parse error: {e}")
             return
+
+        # Sanitize: ensure all memories are dictionaries
+        if isinstance(memories, list):
+            memories = [m for m in memories if isinstance(m, dict)]
+
 
         print(f"✓ Extracted {len(memories)} memory candidates")
         contents = [m.get("content", "") for m in memories if m.get("content")]
@@ -509,6 +539,21 @@ Return JSON: {"memories": [{"content": "...", "type": "semantic|episodic|procedu
 
             shard_key = mem.get("topic", self._infer_shard_key(content))
             shard = self._get_or_create_shard(shard_key)
+
+            # Check for existing duplicate in this shard
+            existing_node = None
+            for n in shard.nodes.values():
+                if n.content == content:
+                    existing_node = n
+                    break
+            
+            if existing_node:
+                # Merge into existing
+                existing_node.salience = max(existing_node.salience, mem.get("salience", 0.5))
+                existing_node.last_accessed = time.time()
+                existing_node.access_count += 1
+                print(f"   (Merged duplication into {existing_node.id})")
+                continue
 
             node_id = self._generate_node_id()
             node = Node(

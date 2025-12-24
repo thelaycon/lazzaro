@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: lazzaro
-Version: 0.1.0
+Version: 0.1.2.1
 Summary: A scalable memory system for AI agents using graph-based sharding and hierarchical clustering.
 Author-email: Tobi Balogun <tobitobitobiwhy@gmail.com>
 License: MIT
