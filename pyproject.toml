@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lazzaro"
+version = "0.1.0"
+description = "A scalable memory system for AI agents using graph-based sharding and hierarchical clustering."
+readme = "README.md"
+authors = [
+  { name = "Tobi Balogun", email = "tobitobitobiwhy@gmail.com" },
+]
+requires-python = ">=3.8"
+license = {text = "MIT"}
+dependencies = [
+    "openai",
+    "numpy",
+    "networkx",
+    "matplotlib",
+    "plotly",
+]
+
+[project.scripts]
+lazzaro-cli = "lazzaro.cli.main:entry_point"
+
+[project.urls]
+Homepage = "https://github.com/thelaycon/lazzaro"
