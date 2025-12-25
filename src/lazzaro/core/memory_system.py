@@ -483,7 +483,7 @@ class MemorySystem:
 
         # 2. Vector Store Retrieval (LanceDB)
         limit = 10 if not retrieved else 5
-        vector_ids = self.vector_store.search(query_emb, limit=limit)
+        vector_ids = self.vector_store.search_nodes(query_emb, user_id=self.user_id, limit=limit)
         
         # Merge results, prioritizing hierarchical if any, then vector
         seen_ids = set(retrieved)
@@ -571,7 +571,7 @@ class MemorySystem:
             if removed_count > 0:
                 # Sync with LanceDB
                 to_remove_ids = [nid for nid, _, _ in to_remove]
-                self.vector_store.delete(to_remove_ids)
+                self.vector_store.delete_nodes(to_remove_ids, user_id=self.user_id)
                 
                 print(
                     f"⚠ Buffer limit reached! Archived {removed_count} old nodes (limit: {self.max_buffer_size})"
@@ -721,7 +721,7 @@ Return JSON: {"memories": [{"content": "...", "type": "semantic|episodic|procedu
             existing_node = None
             
             if new_emb:
-                results = self.vector_store.search(new_emb, limit=1)
+                results = self.vector_store.search_nodes(new_emb, user_id=self.user_id, limit=1)
                 if results:
                     best_match_id = results[0]
                     # We still check local shards for the actual node object
@@ -766,7 +766,7 @@ Return JSON: {"memories": [{"content": "...", "type": "semantic|episodic|procedu
             })
 
         if new_nodes_data:
-            self.vector_store.add(new_nodes_data)
+            self.vector_store.add_nodes(new_nodes_data, user_id=self.user_id)
 
         self._link_within_shards(new_nodes)
         self._link_to_existing_memories(new_nodes)
@@ -1107,8 +1107,8 @@ Example: {"preferences": "User prefers Python for data science.", "knowledge_dom
                 merged_count += 1
                 
                 # Sync with LanceDB: Delete merged node, update original node
-                self.vector_store.delete([nid2])
-                self.vector_store.add([{
+                self.vector_store.delete_nodes([nid2], user_id=self.user_id)
+                self.vector_store.add_nodes([{
                     "id": nid1,
                     "content": node1.content,
                     "embedding": node1.embedding,
