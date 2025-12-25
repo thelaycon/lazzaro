@@ -243,9 +243,12 @@
                     </div>
                     <p class="text-[15px] font-medium leading-relaxed mb-6 text-white overflow-hidden">[[
                         selectedNode.content ]]</p>
-                    <div class="grid grid-cols-2 gap-3 mb-4 text-[10px] text-zinc-500 uppercase tracking-widest">
+                    <div class="grid grid-cols-2 gap-3 mb-2 text-[10px] text-zinc-500 uppercase tracking-widest">
                         <div class="bg-white/5 p-2 rounded">SALIENCE: [[ selectedNode.salience.toFixed(2) ]]</div>
-                        <div class="bg-white/5 p-2 rounded">SHARD: [[ selectedNode.shard ]]</div>
+                        <div class="bg-white/5 p-2 rounded">ACCESSES: [[ selectedNode.access_count ]]</div>
+                    </div>
+                    <div class="bg-white/5 p-2 rounded text-[10px] text-zinc-500 uppercase tracking-widest">
+                        SHARD: [[ selectedNode.shard ]]
                     </div>
                 </div>
             </section>
@@ -308,13 +311,13 @@
                 const searchNodes = () => {
                     if (!searchQuery.value) return;
                     const q = searchQuery.value.toLowerCase();
-                    const matchingNodes = graphData.value.nodes.filter(n => n.content.toLowerCase().includes(q));
+                    // Access internal graph nodes for live coordinates
+                    const nodes = graph.graphData().nodes;
+                    const node = nodes.find(n => n.content.toLowerCase().includes(q));
 
-                    if (matchingNodes.length > 0) {
-                        // Zoom to the first match
-                        const node = matchingNodes[0];
+                    if (node && node.x !== undefined) {
                         graph.centerAt(node.x, node.y, 1000);
-                        graph.zoom(3, 1000);
+                        graph.zoom(3.5, 1000);
                         selectedNode.value = node;
                     }
                 };
