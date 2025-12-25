@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lazzaro"
-version = "0.2.0"
+version = "0.2.5"
 description = "A scalable memory system for AI agents using graph-based sharding and hierarchical clustering."
 readme = "README.md"
 authors = [
@@ -31,3 +31,14 @@ lazzaro-dashboard = "lazzaro.dashboard.api:entry_point"
 
 [project.urls]
 Homepage = "https://github.com/thelaycon/lazzaro"
+
+[tool.setuptools]
+include-package-data = true
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.html", "*.css", "*.js"]
+"lazzaro.dashboard" = ["templates/*.html"]

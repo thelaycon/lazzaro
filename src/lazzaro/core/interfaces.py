@@ -52,25 +52,51 @@ class EmbeddingProvider(Protocol):
         """Embed a batch of strings."""
         ...
 
-class VectorStore(Protocol):
+class Store(Protocol):
     """
-    Protocol for vector storage and semantic search.
-    
-    Any class implementing this protocol can be used as the vector backend
-    for MemorySystem to enable efficient similarity retrieval.
+    Protocol for full graph persistence and retrieval.
+    Replaces VectorStore in v0.3.0 to handle all nodes, edges, and profile data.
     """
-    def add(self, nodes: List[Dict[str, Any]]):
-        """Add a batch of nodes to the vector store."""
+    def add_nodes(self, nodes: List[Dict[str, Any]], user_id: str = "default"):
+        """Add a batch of nodes."""
         ...
     
-    def search(self, query_emb: List[float], limit: int = 5) -> List[str]:
-        """Search for the most similar nodes given a query embedding."""
+    def get_nodes(self, user_id: str = "default") -> List[Dict[str, Any]]:
+        """Retrieve all nodes for a user."""
         ...
     
-    def delete(self, node_ids: List[str]):
-        """Delete specific nodes by their IDs."""
+    def get_latest_version(self) -> int:
+        """Get the latest version of the node store."""
+        ...
+    
+    def search_nodes(self, query_emb: List[float], user_id: str = "default", limit: int = 5) -> List[str]:
+        """Search for nodes by embedding."""
+        ...
+    
+    def delete_nodes(self, node_ids: List[str], user_id: str = "default"):
+        """Delete nodes."""
+        ...
+
+    def add_edges(self, edges: List[Dict[str, Any]], user_id: str = "default"):
+        """Add a batch of edges."""
+        ...
+
+    def delete_edges(self, source_id: Optional[str] = None, user_id: str = "default"):
+        """Delete edges, optionally filtered by source."""
+        ...
+
+    def get_edges(self, source_id: Optional[str] = None, user_id: str = "default") -> List[Dict[str, Any]]:
+        """Retrieve edges, optionally filtered by source."""
+        ...
+
+    def save_profile(self, profile_data: Dict[str, Any], user_id: str = "default"):
+        """Save user profile state."""
+        ...
+
+    def load_profile(self, user_id: str = "default") -> Optional[Dict[str, Any]]:
+        """Load user profile state."""
         ...
     
     def close(self):
-        """Close the connection to the vector store."""
+        """Close connection."""
         ...

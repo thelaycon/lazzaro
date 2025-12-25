@@ -1,0 +1,3 @@
+recursive-include src/lazzaro/dashboard/templates *
+include README.md
+include LICENSE

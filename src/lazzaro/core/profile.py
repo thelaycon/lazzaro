@@ -49,3 +49,11 @@ class Profile:
             "data": self.data,
             "last_updated": self.last_updated
         }
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        """Creates a Profile from a dictionary."""
+        instance = cls()
+        instance.data = data.get("data", instance.data)
+        instance.last_updated = data.get("last_updated", instance.last_updated)
+        return instance

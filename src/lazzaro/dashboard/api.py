@@ -31,6 +31,7 @@ async def get_dashboard(request: Request):
 async def get_stats():
     if not _ms:
         return {"error": "Memory system not initialized"}
+    _ms.check_for_updates()
     return _ms.get_stats()
 
 @app.get("/api/graph")
@@ -38,6 +39,7 @@ async def get_graph():
     if not _ms:
         return {"nodes": [], "links": []}
     
+    _ms.check_for_updates()
     nodes = []
     links = []
     
@@ -79,6 +81,7 @@ async def get_graph():
 async def get_profile():
     if not _ms:
         return {}
+    _ms.check_for_updates()
     return _ms.profile.to_dict()
 
 @app.post("/api/consolidate")

@@ -1,3 +1,4 @@
+MANIFEST.in
 README.md
 pyproject.toml
 src/lazzaro/__init__.py
@@ -14,12 +15,13 @@ src/lazzaro/core/buffer_graph.py
 src/lazzaro/core/interfaces.py
 src/lazzaro/core/memory_shard.py
 src/lazzaro/core/memory_system.py
-src/lazzaro/core/persistence.py
 src/lazzaro/core/profile.py
 src/lazzaro/core/providers.py
 src/lazzaro/core/query_cache.py
+src/lazzaro/core/vector_store.py
 src/lazzaro/dashboard/__init__.py
 src/lazzaro/dashboard/api.py
+src/lazzaro/dashboard/templates/index.html
 src/lazzaro/integrations/__init__.py
 src/lazzaro/integrations/adk_integration.py
 src/lazzaro/integrations/autogen_integration.py
@@ -29,6 +31,9 @@ src/lazzaro/models/__init__.py
 src/lazzaro/models/graph.py
 tests/test_basic.py
 tests/test_consolidation_semantic.py
+tests/test_lancedb_integration.py
 tests/test_persistence.py
 tests/test_profile_update.py
 tests/test_providers.py
+tests/test_v03_migration.py
+tests/test_vector_store.py

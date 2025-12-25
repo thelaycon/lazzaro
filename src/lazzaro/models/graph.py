@@ -49,8 +49,14 @@ class Node:
     parent_id: Optional[str] = None
     shard_key: str = "default"
 
+    @classmethod
+    def from_dict(cls, data: dict):
+        """Creates a Node from a dictionary."""
+        # Use only existing fields in data that match Node's __init__
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
     def to_dict(self):
-        """Returns a dictionary representation of the node."""
+        """Returns a serializable dictionary of the node."""
         return asdict(self)
 
 
@@ -88,6 +94,11 @@ class Edge:
     co_occurrence: int = 1
     last_updated: float = field(default_factory=time.time)
 
+    @classmethod
+    def from_dict(cls, data: dict):
+        """Creates an Edge from a dictionary."""
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
     def to_dict(self):
-        """Returns a dictionary representation of the edge."""
+        """Returns a serializable dictionary of the edge."""
         return asdict(self)

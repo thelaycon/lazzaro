@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -9,13 +10,12 @@ import openai
 
 from ..models.graph import Edge, Node
 from .buffer_graph import BufferGraph
-from .interfaces import EmbeddingProvider, LLMProvider
+from .interfaces import EmbeddingProvider, LLMProvider, Store
 from .memory_shard import MemoryShard
-from .persistence import PersistenceManager
 from .profile import Profile
 from .providers import OpenAIEmbedder, OpenAILLM
 from .query_cache import QueryCache
-from .vector_store import LanceDBVectorStore
+from .vector_store import LanceDBStore
 
 
 class MemorySystem:
@@ -79,8 +79,11 @@ class MemorySystem:
         llm_provider: Optional[LLMProvider] = None,
         embedding_provider: Optional[EmbeddingProvider] = None,
         db_dir: str = "db",
+        user_id: str = "default",
+        store: Optional[Store] = None,
     ):
         self.model = model
+        self.user_id = user_id
 
         # Initialize providers
         if llm_provider:
@@ -97,8 +100,14 @@ class MemorySystem:
         self.super_nodes: Dict[str, Node] = {}
         self.buffer = BufferGraph(self.shards, self.super_nodes)
         self.profile = Profile()
-        self.persistence = PersistenceManager(db_dir=db_dir)
-        self.vector_store = LanceDBVectorStore(db_dir=db_dir)
+        
+        if store:
+            self.store = store
+        else:
+            self.store = LanceDBStore(db_dir=db_dir)
+        
+        # Backward compatibility for code that still uses .vector_store
+        self.vector_store = self.store 
 
         self.enable_sharding = enable_sharding
         self.enable_hierarchy = enable_hierarchy
@@ -302,12 +311,12 @@ class MemorySystem:
                     self.buffer.update_access(nid)
             if memory_texts:
                 context_parts.append(
-                    "Relevant Information from Past Conversations (You MUST use this if relevant):\n"
+                    "Relevant Information from Past Conversations (Use if relevant to the query):\n"
                     + "\n".join(memory_texts)
                     + "\n"
                 )
 
-        system_prompt = "You are a helpful assistant with access to the user's profile and past memories. These memories are factual records of the user's life and preferences. You MUST use this context to answer questions about the user."
+        system_prompt = "You are a helpful assistant with access to the user's profile and past memories. Use the provided context ONLY if it is relevant to the user's current query. Do not force the information if it doesn't fit naturally."
         messages = [{"role": "system", "content": system_prompt}]
 
         if context_parts:
@@ -407,12 +416,12 @@ class MemorySystem:
                     self.buffer.update_access(nid)
             if memory_texts:
                 context_parts.append(
-                    f"Relevant Information from Past Conversations (You MUST use this):\n"
+                    f"Relevant Information from Past Conversations (Use if relevant to the query):\n"
                     + "\n".join(memory_texts)
                     + "\n"
                 )
 
-        system_prompt = "You are a helpful assistant with access to the user's profile and past memories. These memories are factual records of the user's life and preferences. You MUST use this context to answer questions about the user."
+        system_prompt = "You are a helpful assistant with access to the user's profile and past memories. Use the provided context ONLY if it is relevant to the user's current query. Do not force the information if it doesn't fit naturally."
         messages = [{"role": "system", "content": system_prompt}]
 
         if context_parts:
@@ -653,18 +662,17 @@ class MemorySystem:
 
         conv_text = json.dumps(all_memories)
         system_prompt = """Extract distinct, atomic facts from this conversation.
-Guidelines:
-1. Facts must be about the user or their preferences/experiences.
-2. Formulate facts in the THIRD PERSON (e.g., 'The user likes...' not 'I like...').
-3. Abstract the fact from conversational filler (e.g., 'User prefers Python' instead of 'The user said they prefer Python').
-4. DO NOT return raw messages word-for-word.
-5. If no new factual information is found, return an empty list of memories.
+Categorization Guidelines:
+1. semantic: Stable facts, preferences, or knowledge (e.g., "User likes Python", "User lives in London").
+2. episodic: Specific events, occurrences, or recent activities (e.g., "User started a new job today", "User fixed a bug in the API").
+3. procedural: Processes, workflows, or instructions (e.g., "User follows the git-flow model", "User prefers TDD for testing").
+
+Format Rules:
+- Formulate facts in the THIRD PERSON.
+- Abstract from conversational filler.
+- If no new facts, return empty list.
 
 Return JSON: {"memories": [{"content": "...", "type": "semantic|episodic|procedural", "salience": 0.0-1.0, "topic": "work|personal|learning|health|other"}]}
-
-Example:
-Input: "I love football"
-Output: {"memories": [{"content": "User loves football", "type": "episodic", "salience": 1.0, "topic": "personal"}]}
 """
 
         messages = [
@@ -698,6 +706,7 @@ Output: {"memories": [{"content": "User loves football", "type": "episodic", "sa
         contents = [m.get("content", "") for m in memories if m.get("content")]
         embeddings = self._batch_embed(contents)
 
+        new_nodes = []
         new_nodes_data = []
         for i, mem in enumerate(memories):
             content = mem.get("content", "")
@@ -1264,71 +1273,162 @@ STORAGE:
             return f"⚠ File {filename} not found"
 
     def _save_to_persistence(self):
-        state = {
-            "shards": self.shards,
-            "super_nodes": self.super_nodes,
-            "profile": self.profile,
-            "node_counter": self.node_counter,
-            "conversation_count": self.conversation_count,
-            "query_cache": self.query_cache.cache if self.query_cache else None,
-            "settings": {
-                "enable_sharding": self.enable_sharding,
-                "enable_hierarchy": self.enable_hierarchy,
-                "enable_caching": self.enable_caching,
-                "enable_async": self.enable_async,
-                "max_shard_size": self.max_shard_size,
-                "super_node_threshold": self.super_node_threshold,
-                "auto_consolidate": self.auto_consolidate,
-                "consolidate_every": self.consolidate_every,
-                "auto_prune": self.auto_prune,
-                "prune_threshold": self.prune_threshold,
-                "max_buffer_size": self.max_buffer_size,
-            },
-        }
-        if self.persistence.save(state):
-            pass  # Silent save or debug log
+        """Saves current state to LanceDB Store."""
+        # 1. Save Nodes
+        all_nodes = []
+        for node in self.buffer.nodes.values():
+            all_nodes.append(node.to_dict())
+        
+        # Clear existing data for this user to ensure consistency
+        self.store.delete_nodes([], user_id=self.user_id)
+        self.store.delete_edges(user_id=self.user_id)
+        
+        if all_nodes:
+            self.store.add_nodes(all_nodes, user_id=self.user_id)
+
+        # 2. Save Edges
+        all_edges = []
+        # Normal shard edges
+        for shard in self.shards.values():
+            for edge in shard.edges.values():
+                all_edges.append(edge.to_dict())
+        
+        if all_edges:
+            self.store.add_edges(all_edges, user_id=self.user_id)
+
+        # 3. Save Profile
+        self.store.save_profile(self.profile.to_dict(), user_id=self.user_id)
+        
+        print(f"✓ State persisted to LanceDB for user: {self.user_id}")
 
     def _load_from_persistence(self):
-        state = self.persistence.load()
-        if not state:
+        """Loads state from LanceDB Store."""
+        print(f"🔄 Loading state from LanceDB for user: {self.user_id}...")
+        
+        # 1. Load Nodes
+        node_dicts = self.store.get_nodes(user_id=self.user_id)
+        if not node_dicts:
+            print("ℹ No saved state found in LanceDB.")
             return
 
-        self.shards = state.get("shards", {})
-        self.super_nodes = state.get("super_nodes", {})
-        self.profile = state.get("profile", Profile())
-        self.node_counter = state.get("node_counter", 0)
-        self.conversation_count = state.get("conversation_count", 0)
-
-        # Re-initialize buffer with loaded shards
-        self.buffer = BufferGraph(self.shards, self.super_nodes)
-
-        if self.query_cache and state.get("query_cache"):
-            self.query_cache.cache = state.get("query_cache")
-
-        print(f"✓ Restored state from disk ({len(self.buffer.nodes)} nodes)")
+        self.shards = {}
+        self.super_nodes = {}
         
-        # Ensure LanceDB is synced
+        for nd in node_dicts:
+            # Map database field 'vector' back to 'embedding' for Node constructor
+            if "vector" in nd:
+                nd["embedding"] = nd.pop("vector")
+            
+            # Parse child_ids from JSON
+            if "child_ids" in nd and isinstance(nd["child_ids"], str):
+                try:
+                    nd["child_ids"] = json.loads(nd["child_ids"])
+                except json.JSONDecodeError:
+                    nd["child_ids"] = []
+            
+            # Parse metadata
+            if "metadata" in nd and isinstance(nd["metadata"], str):
+                try:
+                    nd["metadata"] = json.loads(nd["metadata"])
+                except json.JSONDecodeError:
+                    nd["metadata"] = {}
+                
+            node = Node.from_dict(nd)
+            
+            if node.is_super_node:
+                self.super_nodes[node.id] = node
+            else:
+                s_key = node.shard_key
+                if s_key not in self.shards:
+                    self.shards[s_key] = MemoryShard(s_key)
+                self.shards[s_key].add_node(node)
+
+        # 2. Load Edges
+        edge_dicts = self.store.get_edges(user_id=self.user_id)
+        for ed in edge_dicts:
+            # Map 'source_id'/'target_id' back to 'source'/'target' for Edge constructor
+            if "source_id" in ed: ed["source"] = ed.pop("source_id")
+            if "target_id" in ed: ed["target"] = ed.pop("target_id")
+            
+            # Map 'type' if needed (though it should be edge_type in schema now)
+            if "type" in ed and "edge_type" not in ed:
+                 ed["edge_type"] = ed.pop("type")
+            
+            # Parse metadata
+            if "metadata" in ed and isinstance(ed["metadata"], str):
+                try:
+                    ed["metadata"] = json.loads(ed["metadata"])
+                except json.JSONDecodeError:
+                    ed["metadata"] = {}
+            
+            edge = Edge.from_dict(ed)
+            
+            # Find which shard this edge belongs to.
+            # Usually based on source node.
+            src_node = None
+            if edge.source in self.super_nodes:
+                src_node = self.super_nodes[edge.source]
+            else:
+                # Find in shards
+                for shard in self.shards.values():
+                    if edge.source in shard.nodes:
+                        src_node = shard.nodes[edge.source]
+                        break
+            
+            if src_node:
+                s_key = src_node.shard_key
+                if s_key in self.shards:
+                    self.shards[s_key].add_edge(edge)
+
+        # 3. Load Profile
+        profile_data = self.store.load_profile(user_id=self.user_id)
+        if profile_data:
+            self.profile = Profile.from_dict(profile_data)
+        else:
+            self.profile = Profile()
+
+        # Update last version to avoid immediate reload if using check_for_updates
+        try:
+            self._last_nodes_version = self.store.get_latest_version()
+        except:
+            self._last_nodes_version = 0
+
+        # Re-initialize buffer
+        self.buffer = BufferGraph(self.shards, self.super_nodes)
+        
+        # Update node_counter to avoid ID collisions
         if self.buffer.nodes:
-            # Check if LanceDB is empty (quick check via search)
-            try:
-                # Search for anything with a dummy embedding
-                test_results = self.vector_store.search([0.0] * 1536, limit=1)
-                if not test_results:
-                    print("🔄 Syncing LanceDB with loaded nodes...")
-                    all_nodes_data = []
-                    for node in self.buffer.nodes.values():
-                        if not node.is_super_node:
-                            all_nodes_data.append({
-                                "id": node.id,
-                                "content": node.content,
-                                "embedding": node.embedding,
-                                "type": node.type,
-                                "salience": node.salience,
-                                "shard_key": node.shard_key,
-                                "timestamp": node.timestamp
-                            })
-                    if all_nodes_data:
-                        self.vector_store.add(all_nodes_data)
-                        print(f"✓ Synced {len(all_nodes_data)} nodes to LanceDB")
-            except Exception as e:
-                print(f"⚠ Error syncing LanceDB: {e}")
+            max_id = 0
+            for nid in self.buffer.nodes.keys():
+                if nid.startswith("node_"):
+                    try:
+                        num = int(nid.split("_")[1])
+                        max_id = max(max_id, num)
+                    except: pass
+            self.node_counter = max_id
+
+        print(f"✓ Restored state from LanceDB ({len(self.buffer.nodes)} nodes, {len(edge_dicts)} edges)")
+
+    def check_for_updates(self):
+        """
+        Checks if the LanceDB tables have been modified and reloads if necessary.
+        Used by the dashboard to stay in sync with the live system.
+        """
+        try:
+            # Check version of the nodes table via the store's reliable check
+            current_version = self.store.get_latest_version()
+            if not hasattr(self, "_last_nodes_version") or current_version > self._last_nodes_version:
+                print(f"🔄 LanceDB updated (v{current_version}), reloading...")
+                self._load_from_persistence()
+                # _load_from_persistence already sets self._last_nodes_version now
+                return True
+        except Exception as e:
+            # Table might not exist yet or connection closed
+            pass
+        return False
+    def close(self):
+        """Closes the memory system and its storage connections."""
+        if hasattr(self, "store"):
+            self.store.close()
+        if self.background_executor:
+            self.background_executor.shutdown(wait=True)

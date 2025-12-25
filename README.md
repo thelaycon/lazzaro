@@ -31,11 +31,12 @@ Unlike traditional database sharding by ID, Lazzaro shards memories semantically
 *   **Shard Inference**: When new facts are extracted, Lazzaro uses an LLM to categorize them into existing or new shards.
 *   **Retrieval Heuristic**: To maintain low latency, Lazzaro prioritizes recently accessed shards and those with higher node density for initial search.
 
-### 2. Vector Storage (LanceDB Backend)
-Lazzaro utilizes **LanceDB** for high-performance vector operations and persistent storage.
+### 2. Vector Storage (LanceDB Persistence)
+Lazzaro utilizes **LanceDB** as its primary persistence layer and high-performance vector engine.
+*   **Full State Retention**: Unlike basic vector stores, LanceDB persists the entire memory graph, including nodes, edges, and the evolved user profile.
 *   **Fast Retrieval**: Sub-millisecond vector search across thousands of nodes.
-*   **Integrated Persistence**: Optimized on-disk storage that works alongside the graph structure.
-*   **Automatic Sync**: LanceDB is automatically synchronized with graph operations like node merging and pruning.
+*   **Scalable Architecture**: Optimized on-disk storage that enables multi-process synchronization and reliable data integrity.
+*   **Automatic Sync**: LanceDB is automatically synchronized during all graph operations, ensuring no data loss between sessions.
 
 ### 3. The Buffer Graph
 The `BufferGraph` manages the global state of all shards and super-nodes. It handles:
@@ -165,6 +166,8 @@ lazzaro-cli
 | `/profile` | View evolved user profile data. |
 | `/memories [n]` | Inspect the `n` most recent memory nodes. |
 | `/consolidate` | Force immediate graph-wide consolidation. |
+| `/merge` | Manually trigger semantic deduplication of similar nodes. |
+| `/prune [t]` | Remove edges with weights below threshold `t` (default: 0.5). |
 | `/config` | View and modify runtime parameters. |
 | `/save [file]` | Export current state to JSON. |
 | `/load [file]` | Import state from JSON. |
@@ -179,14 +182,15 @@ lazzaro-cli
 | `enable_async` | `True` | Background thread processing for consolidation. |
 | `enable_sharding` | `True` | Use topic-based subgraph isolation. |
 | `prune_threshold` | `0.5` | Minimum weight to retain an edge. |
-| `load_from_disk` | `True` | Restore state from `db/lazzaro.pkl` on startup. |
+| `load_from_disk` | `True` | Automatically restore state from LanceDB on startup. |
+| `db_dir` | `"db"` | Directory for LanceDB persistence. |
 
 ## Persistence and Safety
 
-*   **Atomic Persistence**: Lazzaro writes to a temporary file before renaming it to `lazzaro.pkl` to prevent corruption during crashes.
-*   **Vector Database**: High-performance persistent vector data is stored in the `db/lancedb/` directory using the Lance format.
-*   **Backup System**: A `.bak` file is maintained as a fallback for the primary graph state.
-*   **JSON Export**: Human-readable snapshots can be exported using `save_state()`.
+*   **LanceDB Native Persistence**: Lazzaro maintains its entire state (Graph + Vector + Profile) within LanceDB tables inside the `db/` directory.
+*   **Atomic Updates**: Database operations are atomic, preventing state corruption during unexpected shutdowns.
+*   **Version Control**: LanceDB's internal versioning allows for reliable multi-process access and synchronization.
+*   **JSON Export**: Human-readable snapshots can be exported using the `/save` command or `save_state()` method for easy debugging and porting.
 
 ## Development
 
