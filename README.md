@@ -2,7 +2,7 @@
 
 **Scalable Memory System Library for AI Agents**
 
-Lazzaro is a high-performance Python library for long-term, structured agent memory. It goes beyond simple vector search by implementing a graph-based architecture with semantic sharding, hierarchical clustering, and biological-inspired decay. It evolves a multi-domain user profile through continuous conversation consolidation.
+Lazzaro is a high-performance Python library for long-term, structured agent memory using graph-based sharding and hierarchical clustering.
 
 ## Installation
 
@@ -10,144 +10,63 @@ Lazzaro is a high-performance Python library for long-term, structured agent mem
 pip install lazzaro
 ```
 
-*   **Extensions**: `google-generativeai`, `together` (LLMs), `langchain-core` (Integrations), `matplotlib` (Visualization).
+*   **Extensions**: `google-generativeai`, `together`, `langchain-core`.
 
-## Core Architecture
+## How it Works
 
-Lazzaro organizes memory as a multi-layered graph optimized for scale:
-
--   **Semantic Shards**: Topic-based subgraphs (e.g., "coding", "health") that provide natural isolation and accelerated retrieval.
--   **LanceDB Backed**: Persistent storage of the entire graph (nodes, edges, profile) with sub-millisecond vector performance.
--   **Hierarchical super-nodes**: Summary nodes representing large clusters, allowing for abstract reasoning and fast top-down search.
--   **Multi-User Factory**: Native multi-tenant support with B-Tree optimized user partitioning.
-
-## Memory Lifecycle
-
-1.  **Episodic Buffer**: Immediate caching of conversations for short-term context.
-2.  **Background Consolidation**: Asynchronous LLM extraction of atomic facts, deduplication via LanceDB, and associative graph linking.
-3.  **Temporal Decay & Pruning**: Biological-inspired pruning where weak associations fade and salience decays non-linearly to prevent memory bloat.
-
-## User Profile & Retrieval
-
-Lazzaro evolves a structured persona across five domains (Preferences, Personality, Knowledge, Style, and Experiences). Retrieval uses a hybrid approach:
--   **Sharded Semantic Search**: Narrowing the search space to relevant subgraphs.
--   **Associative Boosting**: High-salience nodes pull their neighbors into the current context buffer.
--   **Optimized Retrieval**: Combines vector similarity with hierarchical pathing and frequency metrics.
+Lazzaro organizes memory into **Semantic Shards** (topic-based Subgraphs) backed by **LanceDB**. It maintains an active **Episodic Buffer** that asynchronously consolidates into the long-term graph, evolving a structured **User Profile** while using **Biological Decay** to prune weak associations.
 
 ## Usage
 
-### Provider Configuration
-
+### Basic Initialization
 ```python
 from lazzaro.core.memory_system import MemorySystem
-from lazzaro.core.providers import GeminiLLM, GeminiEmbedder
 
-# Initialize providers
-llm = GeminiLLM(api_key="API_KEY", model="gemini-1.5-flash")
-embedder = GeminiEmbedder(api_key="API_KEY")
-
-# Initialize Memory System
-ms = MemorySystem(
-    llm_provider=llm, 
-    embedding_provider=embedder,
-    enable_sharding=True,
-    enable_hierarchy=True,
-    max_buffer_size=100
-)
-
-# Chat with built-in memory retrieval
+ms = MemorySystem(user_id="alice")
 ms.start_conversation()
-response = ms.chat("I'm working on a Rust project and I prefer using async-std.")
-print(response)
-
-# Finalize and trigger background consolidation
-print(ms.end_conversation())
+ms.chat("I love Rust and distributed systems.")
+ms.end_conversation()
 ```
 
-### Visual Dashboard
+### Multi-Tenant Usage
+Lazzaro natively supports B-Tree optimized user partitioning:
+```python
+# Start as one user
+ms = MemorySystem(user_id="user_123")
 
-For a high-fidelity, interactive experience, Lazzaro includes a custom web-based dashboard:
+# Switch context mid-session
+ms.switch_user("user_456") 
 
+# Discovery
+users = ms.get_all_users()
+```
+
+## Advanced APIs
+
+- **`get_insights()`**: LLM-summarized personality/knowledge profile.
+- **`export_observations()`**: Export memories as Markdown or JSON.
+- **`search_memories(query)`**: Semantic discovery within user context.
+
+## Visual Dashboard
+
+Launch the interactive force-graph explorer:
 ```bash
 lazzaro-dashboard
 ```
 
-![Lazzaro Dashboard Preview](https://raw.githubusercontent.com/thelaycon/lazzaro/main/assets/dashboard_preview.png)
+## Integrations
 
-The dashboard will be available at `http://localhost:5299` and features:
-*   **Live Force-Graph**: Interactive visualization of your memory shards and node relationships.
-*   **Real-time Metrics**: Monitor LLM calls, embedding costs, and retrieval latency.
-*   **Profile Explorer**: View your evolved user persona domains in a sleek side drawer.
-
-### Integrations
-
-#### LangChain
-```python
-from lazzaro.integrations import LazzaroLangChainMemory
-from langchain.chains import ConversationChain
-
-memory = LazzaroLangChainMemory(memory_system=ms)
-chain = ConversationChain(llm=chat_model, memory=memory)
-```
-
-#### LangGraph
-```python
-from lazzaro.integrations import LazzaroLangGraph
-
-lg = LazzaroLangGraph(ms)
-builder.add_node("retrieve", lg.get_memory_node())
-builder.add_node("record", lg.get_record_node())
-```
-
-## CLI Reference
-
-Launch the interactive shell:
-```bash
-lazzaro-cli
-```
-
-### Command Table
-| Command | Description |
-|---------|-------------|
-| `/start` | Manual session initialization. |
-| `/end` | Manual session termination and consolidation trigger. |
-| `/stats` | Display node counts, shard density, and performance metrics. |
-| `/profile` | View evolved user profile data. |
-| `/memories [n]` | Inspect the `n` most recent memory nodes. |
-| `/consolidate` | Force immediate graph-wide consolidation. |
-| `/merge` | Manually trigger semantic deduplication of similar nodes. |
-| `/prune [t]` | Remove edges with weights below threshold `t` (default: 0.5). |
-| `/config` | View and modify runtime parameters. |
-| `/save [file]` | Export current state to JSON. |
-| `/load [file]` | Import state from JSON. |
+- **LangChain**: `LazzaroLangChainMemory`
+- **LangGraph**: `LazzaroLangGraph`
+- **CLI**: `lazzaro-cli` for interactive debugging.
 
 ## Parameter Reference
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `auto_consolidate` | `True` | Extract facts after every N conversations. |
-| `consolidate_every` | `3` | Conversation frequency for consolidation. |
-| `max_buffer_size` | `10` | Total nodes allowed before archiving. |
-| `enable_async` | `True` | Background thread processing for consolidation. |
-| `enable_sharding` | `True` | Use topic-based subgraph isolation. |
-| `prune_threshold` | `0.5` | Minimum weight to retain an edge. |
-| `load_from_disk` | `True` | Automatically restore state from LanceDB on startup. |
-| `db_dir` | `"db"` | Directory for LanceDB persistence. |
-
-## Persistence and Safety
-
-*   **LanceDB Native Persistence**: Lazzaro maintains its entire state (Graph + Vector + Profile) within LanceDB tables inside the `db/` directory.
-*   **Atomic Updates**: Database operations are atomic, preventing state corruption during unexpected shutdowns.
-*   **Version Control**: LanceDB's internal versioning allows for reliable multi-process access and synchronization.
-*   **JSON Export**: Human-readable snapshots can be exported using the `/save` command or `save_state()` method for easy debugging and porting.
-
-## Development
-
-Run tests:
-```bash
-pytest tests/
-```
+| `consolidate_every` | `3` | Conv frequency for fact extraction. |
+| `max_buffer_size` | `10` | Nodes allowed before archiving. |
+| `db_dir` | `"db"` | LanceDB persistence path. |
 
 ## License
-
-This project is licensed under the MIT License.
+MIT
