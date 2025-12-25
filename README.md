@@ -1,56 +1,116 @@
 # Lazzaro
 
-**Scalable Memory System Library**
+**Scalable Memory System Library for AI Agents**
 
-Lazzaro is a Python library designed to give AI agents long-term, scalable, and structured memory. Unlike simple vector databases, Lazzaro uses a **Graph-based** approach combined with **Memory Sharding** and **Hierarchical Clustering** to mimic how human memory works: storing active context in a buffer, consolidating short-term interactions into long-term structures, and forgetting irrelevant details over time.
+Lazzaro is a Python library that provides AI agents with long-term, scalable, and structured memory. Moving beyond simple vector databases, Lazzaro implements a graph-based memory architecture featuring semantic sharding, hierarchical clustering, and biological-inspired decay. It simulates human memory by maintaining an active context buffer, consolidating interactions into persistent structures, and evolving a multi-domain user profile.
 
 ## Installation
+
+Install the core library:
 
 ```bash
 pip install lazzaro
 ```
 
-**Optional Dependencies:**
-- For Gemini: `pip install google-generativeai`
-- For Together AI: `pip install together`
-- For LangChain: `pip install langchain-core`
-- For Autogen: `pip install pyautogen`
+### Optional Dependencies
 
-## How It Works
+Enable specific providers or features:
 
-Lazzaro operates on a few core principles to manage memory scalability and relevance:
+*   **Google Gemini**: `pip install google-generativeai`
+*   **Together AI**: `pip install together`
+*   **LangChain**: `pip install langchain-core`
+*   **Autogen**: `pip install pyautogen`
+*   **Visualization**: `pip install matplotlib plotly`
 
-### 1. Architecture
-*   **Sharding**: Memories are automatically categorized into shards (e.g., `work`, `personal`, `health`) based on content.
-*   **Deduplication**: Lazzaro automatically merges identical memories during consolidation and ensures retrieval results are diverse and non-redundant.
-*   **Profile Evolution**: Beyond facts, Lazzaro extracts and maintains a evolving **User Profile** (preferences, personality, knowledge domains) across multiple fields in a single pass.
+## Core Architecture
 
-### 2. Memory Lifecycle
-1.  **Short-Term Memory (STM)**: Every interaction is initially stored in a temporary buffer.
-2.  **Consolidation**: Background process extracts atomic facts, updates the graph with new associations, and updates profile insights.
-3.  **Forgetting**: Pruning logic removes low-salience associations and archives old nodes to maintain performance.
+Lazzaro manages memory through a multi-layered graph system.
+
+### 1. Memory Shards (Topic-Based Isolation)
+Unlike traditional database sharding by ID, Lazzaro shards memories semantically. Each `MemoryShard` acts as an independent subgraph containing nodes and edges related to a specific topic (e.g., "coding", "personal health", "travel").
+*   **Shard Inference**: When new facts are extracted, Lazzaro uses an LLM to categorize them into existing or new shards.
+*   **Retrieval Heuristic**: To maintain low latency, Lazzaro prioritizes recently accessed shards and those with higher node density for initial search.
+
+### 2. The Buffer Graph
+The `BufferGraph` manages the global state of all shards and super-nodes. It handles:
+*   **Node Integrity**: Maintaining content, embeddings, salience, and access metrics.
+*   **Edge Weighting**: Tracking the strength of associations between memories based on co-occurrence and semantic similarity.
+
+### 3. Hierarchical Clustering (Super-Nodes)
+When a shard grows beyond a configurable threshold, Lazzaro creates "Super-Nodes". These are synthetic nodes that represent the aggregate content of a cluster.
+*   **Accelerated Search**: Retrieval begins at the super-node level to quickly narrow down relevant subgraphs.
+*   **Abstract Reasoning**: Super-nodes allow agents to access high-level summaries of broad topics without loading every individual memory.
+
+## The Memory Lifecycle
+
+### Stage 1: Short-Term Buffer
+Every interaction (user message and assistant response) is initially cached in a short-term episodic buffer. This provides immediate context for the current conversation.
+
+### Stage 2: Asynchronous Consolidation
+Lazzaro runs a multi-stage background process to move buffer data into long-term storage:
+1.  **Atomic Fact Extraction**: An LLM extracts discrete facts from the conversation stream.
+2.  **Deduplication**: New facts are compared against existing nodes in the target shard. If a match is found (cosine similarity > 0.95), the existing node's salience and access count are boosted instead of creating a duplicate.
+3.  **Graph Linking**: New nodes are linked to each other (episodic link) and to semantically related existing nodes (associative link).
+4.  **Profile Update**: Relevant facts are used to refine the multi-domain User Profile.
+
+### Stage 3: Temporal Decay and Pruning
+Lazzaro prevents memory bloat through biological-inspired pruning:
+*   **Sigmoidal Decay**: Node salience and edge weights decrease over time. The decay follows a non-linear curve that flattens at 0.2, ensuring important memories persist longer while weak associations fade.
+*   **Weak Edge Pruning**: Edges with weights falling below a threshold (default 0.5) are automatically removed.
+*   **Buffer Enforcement**: If the total node count exceeds `max_buffer_size`, the system archives the least salient nodes to maintain performance.
+
+## User Profile Evolution
+
+Lazzaro maintains a structured `Profile` across five key domains:
+*   **Preferences**: Specific likes, dislikes, and technical choices.
+*   **Personality Traits**: The user's observed demeanor and values.
+*   **Knowledge Domains**: Areas where the user exhibits expertise or deep interest.
+*   **Interaction Style**: How the user prefers to communicate (e.g., concise, formal, technical).
+*   **Key Experiences**: Significant life events or project milestones.
+
+Updates occur during consolidation, where an LLM synthesizes new interactions into existing profile fields.
+
+## Retrieval Engine
+
+Retrieval is optimized for both speed and relevance:
+*   **Shard Selection**: Only the most relevant shards are searched based on the query.
+*   **Hybrid Search**: Combines cosine similarity of embeddings with recency weighting and salience scores.
+*   **Associative Boosting**: When a node is retrieved, its immediate neighbors in the graph receive a temporary "accessibility boost," pulling related memories into the current context.
+*   **Query Caching**: Frequent queries are cached to minimize LLM and embedding overhead.
 
 ## Usage
 
-### LLM & Embedding Providers
-
-Lazzaro supports multiple providers out of the box:
+### Provider Configuration
 
 ```python
-from lazzaro.core.providers import OpenAILLM, GeminiLLM, TogetherLLM
+from lazzaro.core.memory_system import MemorySystem
+from lazzaro.core.providers import GeminiLLM, GeminiEmbedder
 
-# Gemini Example
-llm = GeminiLLM(api_key="...", model="gemini-1.5-flash")
-embedder = GeminiEmbedder(api_key="...", model="models/embedding-001")
+# Initialize providers
+llm = GeminiLLM(api_key="API_KEY", model="gemini-1.5-flash")
+embedder = GeminiEmbedder(api_key="API_KEY")
 
-ms = MemorySystem(llm_provider=llm, embedding_provider=embedder)
+# Initialize Memory System
+ms = MemorySystem(
+    llm_provider=llm, 
+    embedding_provider=embedder,
+    enable_sharding=True,
+    enable_hierarchy=True,
+    max_buffer_size=100
+)
+
+# Chat with built-in memory retrieval
+ms.start_conversation()
+response = ms.chat("I'm working on a Rust project and I prefer using async-std.")
+print(response)
+
+# Finalize and trigger background consolidation
+print(ms.end_conversation())
 ```
 
-### Framework Integrations
+### Integrations
 
-Lazzaro comes with built-in integrations for popular agent frameworks:
-
-#### 🔗 LangChain
+#### LangChain
 ```python
 from lazzaro.integrations import LazzaroLangChainMemory
 from langchain.chains import ConversationChain
@@ -59,43 +119,60 @@ memory = LazzaroLangChainMemory(memory_system=ms)
 chain = ConversationChain(llm=chat_model, memory=memory)
 ```
 
-#### 🕸️ LangGraph
+#### LangGraph
 ```python
 from lazzaro.integrations import LazzaroLangGraph
 
 lg = LazzaroLangGraph(ms)
-# Add nodes to your graph
-builder.add_node("retrieve_memory", lg.get_memory_node())
-builder.add_node("record_interaction", lg.get_record_node())
+builder.add_node("retrieve", lg.get_memory_node())
+builder.add_node("record", lg.get_record_node())
 ```
 
-#### 🤖 Autogen
-```python
-from lazzaro.integrations import LazzaroAutogenAgent
-from autogen import AssistantAgent
+## CLI Reference
 
-agent = AssistantAgent("assistant", llm_config=...)
-LazzaroAutogenAgent(agent, ms) # Hooks memory into the agent
+Launch the interactive shell:
+```bash
+lazzaro-cli
 ```
 
-#### 🛠️ Google ADK
-```python
-from lazzaro.integrations import LazzaroADKPlugin
+### Command Table
+| Command | Description |
+|---------|-------------|
+| `/start` | Manual session initialization. |
+| `/end` | Manual session termination and consolidation trigger. |
+| `/stats` | Display node counts, shard density, and performance metrics. |
+| `/profile` | View evolved user profile data. |
+| `/memories [n]` | Inspect the `n` most recent memory nodes. |
+| `/consolidate` | Force immediate graph-wide consolidation. |
+| `/config` | View and modify runtime parameters. |
+| `/save [file]` | Export current state to JSON. |
+| `/load [file]` | Import state from JSON. |
 
-plugin = LazzaroADKPlugin(ms)
-# Register retrieval as a tool
-agent.add_tool(plugin.as_tool())
-```
-
-## Configuration
-
-Lazzaro is highly configurable.
+## Parameter Reference
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `auto_consolidate` | `True` | Automatically extract facts and update graph after every N conversations. |
-| `consolidate_every` | `3` | Frequency of full consolidation runs. |
-| `max_buffer_size` | `10` | Maximum number of active nodes in the graph before pruning. |
-| `enable_sync` | `True` | Run consolidation tasks in background threads. |
-| `enable_sharding` | `True` | Organize memories into semantic shards. |
-| `load_from_disk` | `True` | Reload the last saved state from `db/lazzaro.pkl`. |
+| `auto_consolidate` | `True` | Extract facts after every N conversations. |
+| `consolidate_every` | `3` | Conversation frequency for consolidation. |
+| `max_buffer_size` | `10` | Total nodes allowed before archiving. |
+| `enable_async` | `True` | Background thread processing for consolidation. |
+| `enable_sharding` | `True` | Use topic-based subgraph isolation. |
+| `prune_threshold` | `0.5` | Minimum weight to retain an edge. |
+| `load_from_disk` | `True` | Restore state from `db/lazzaro.pkl` on startup. |
+
+## Persistence and Safety
+
+*   **Atomic Persistence**: Lazzaro writes to a temporary file before renaming it to `lazzaro.pkl` to prevent corruption during crashes.
+*   **Backup System**: A `.bak` file is maintained as a fallback to the previous valid state.
+*   **JSON Export**: Human-readable snapshots can be exported using `save_state()`.
+
+## Development
+
+Run tests:
+```bash
+pytest tests/
+```
+
+## License
+
+This project is licensed under the MIT License.

@@ -18,6 +18,47 @@ from .query_cache import QueryCache
 
 
 class MemorySystem:
+    """
+    The orchestrator for the Lazzaro Scalable Memory System.
+
+    MemorySystem manages the entire lifecycle of an AI agent's memory, including
+    short-term buffering, long-term graph consolidation, hierarchical clustering,
+    and semantic sharding.
+
+    Args:
+        openai_api_key: Optional OpenAI API key if using default providers.
+        model: LLM model name (default: "gpt-4o-mini").
+        enable_sharding: If True, organize memories into semantic shards (subgraphs).
+        enable_hierarchy: If True, cluster dense shards into super-nodes for faster search.
+        enable_caching: If True, cache LLM and embedding calls.
+        enable_async: If True, run consolidation in background threads.
+        max_shard_size: Maximum nodes per shard before considering splits.
+        super_node_threshold: Number of nodes in a shard before creating a super-node.
+        auto_consolidate: If True, trigger consolidation after N conversations.
+        consolidate_every: Number of conversations between auto-consolidations.
+        auto_prune: If True, automatically prune weak associations.
+        prune_threshold: Minimum edge weight to retain.
+        max_buffer_size: Maximum nodes in the graph before archiving old ones.
+        load_from_disk: If True, reload state from 'db/lazzaro.pkl' on init.
+        llm_provider: Custom LLM implementation (must follow LLMProvider protocol).
+        embedding_provider: Custom Embedding implementation (must follow EmbeddingProvider protocol).
+
+    Example:
+        ```python
+        from lazzaro.core.memory_system import MemorySystem
+        from lazzaro.core.providers import GeminiLLM, GeminiEmbedder
+
+        llm = GeminiLLM(api_key="...", model="gemini-1.5-flash")
+        embedder = GeminiEmbedder(api_key="...")
+
+        ms = MemorySystem(llm_provider=llm, embedding_provider=embedder)
+
+        ms.start_conversation()
+        response = ms.chat("My favorite color is blue.")
+        ms.end_conversation()
+        ```
+    """
+
     def __init__(
         self,
         openai_api_key: Optional[str] = None,
@@ -92,10 +133,12 @@ class MemorySystem:
             self._load_from_persistence()
 
     def _generate_node_id(self) -> str:
+        """Generates a unique ID for new memory nodes."""
         self.node_counter += 1
         return f"node_{self.node_counter}"
 
     def _infer_shard_key(self, content: str) -> str:
+        """Categorizes content into a semantic shard based on keywords or date."""
         if not self.enable_sharding:
             return "default"
 
@@ -114,11 +157,13 @@ class MemorySystem:
         return time.strftime("%Y-%m")
 
     def _get_or_create_shard(self, shard_key: str) -> MemoryShard:
+        """Retrieves an existing shard or creates a new one for the given key."""
         if shard_key not in self.shards:
             self.shards[shard_key] = MemoryShard(shard_key)
         return self.shards[shard_key]
 
     def _get_embedding(self, text: str) -> List[float]:
+        """Fetches vector embedding for text, using cache if enabled."""
         self.metrics["embedding_calls"] += 1
         if self.query_cache:
             cached = self.query_cache.get_embedding(text)
@@ -131,12 +176,14 @@ class MemorySystem:
         return embedding
 
     def _batch_embed(self, texts: List[str]) -> List[List[float]]:
+        """Handles batch embedding requests to minimize provider overhead."""
         if not texts:
             return []
         self.metrics["embedding_calls"] += 1
         return self.embedder.batch_embed(texts)
 
     def _cosine_similarity(self, v1: List[float], v2: List[float]) -> float:
+        """Calculates normalized cosine similarity between two vectors."""
         if not v1 or not v2:
             return 0.0
         a, b = np.array(v1), np.array(v2)
@@ -144,10 +191,15 @@ class MemorySystem:
         return float(np.dot(a, b) / norm) if norm > 0 else 0.0
 
     def _call_llm(self, messages: List[Dict], response_format: Dict = None) -> str:
+        """Calls the LLM provider and tracks metrics."""
         self.metrics["llm_calls"] += 1
         return self.llm.completion(messages, response_format)
 
     def start_conversation(self) -> str:
+        """
+        Initializes a new interaction session.
+        Clears ephemeral conversation history and short-term buffer.
+        """
         self.conversation_active = True
         self.short_term_memory = []
         self.conversation_history = []
@@ -156,6 +208,10 @@ class MemorySystem:
     def add_to_short_term(
         self, content: str, memory_type: str = "semantic", salience: float = 0.5
     ):
+        """
+        Manually adds a memory unit to the ephemeral buffer.
+        This buffer is processed during consolidation at the end of the conversation.
+        """
         if not self.conversation_active:
             raise RuntimeError("No active conversation")
         memory = {
@@ -192,6 +248,27 @@ class MemorySystem:
             print(f"   (Graph: Boosted {count} neighbor nodes via association)")
 
     def chat(self, user_message: str) -> str:
+        """
+        Processes a user message, retrieves relevant memories, and returns an LLM response.
+
+        This is the primary synchronous entry point for interactions. It performs:
+        1. Contextual memory retrieval (semantic + hierarchical).
+        2. Associative neighbor boosting.
+        3. LLM completion with injected memory context.
+
+        Args:
+            user_message: The raw text input from the user.
+
+        Returns:
+            The assistant's text response.
+
+        Example:
+            ```python
+            ms = MemorySystem(...)
+            response = ms.chat("What did we discuss about the project yesterday?")
+            print(response)
+            ```
+        """
         if not self.conversation_active:
             print(self.start_conversation())
 
@@ -251,6 +328,7 @@ class MemorySystem:
         if retrieved_ids:
             print("   Retrieved Nodes:")
             for nid in retrieved_ids:
+                node = self.buffer.get_node(nid) # Fix: ensure node is defined
                 if node:
                     snippet = (
                         node.content[:60] + "..."
@@ -261,7 +339,19 @@ class MemorySystem:
         return response
 
     def chat_stream(self, user_message: str):
-        """Streams the LLM response yielding content chunks."""
+        """
+        Streams the LLM response chunk by chunk while managing memory retrieval.
+
+        Yields:
+            Dictionaries with 'type' ("info" or "token") and 'content'.
+
+        Example:
+            ```python
+            for chunk in ms.chat_stream("Explain the project again"):
+                if chunk['type'] == 'token':
+                    print(chunk['content'], end="", flush=True)
+            ```
+        """
         if not self.conversation_active:
             print(self.start_conversation())
 
@@ -481,6 +571,25 @@ class MemorySystem:
                 )
 
     def end_conversation(self) -> str:
+        """
+        Finalizes the current session and triggers the memory consolidation pipeline.
+
+        This method:
+        1. Closes the active conversation.
+        2. Queues recent interactions for background fact extraction (consolidation).
+        3. Applies temporal decay to the entire graph.
+        4. Triggers auto-pruning and auto-consolidation if thresholds are met.
+        5. Persists the updated state to disk.
+
+        Returns:
+            A status message summarizing the operations performed.
+
+        Example:
+            ```python
+            status = ms.end_conversation()
+            print(status)
+            ```
+        """
         if not self.conversation_active:
             return "⚠ No active conversation to end."
 
@@ -545,8 +654,19 @@ class MemorySystem:
         print(f"🔄 Processing {len(all_memories)} memories in background...")
 
         conv_text = json.dumps(all_memories)
-        system_prompt = """Extract distinct, atomic facts from this conversation.
-Return JSON: {"memories": [{"content": "...", "type": "semantic|episodic|procedural", "salience": 0.0-1.0, "topic": "work|personal|learning|health|other"}]}"""
+        system_prompt = """Extract distinct, atomic facts from this conversation. Should be about the user, don't return word for word:
+
+Return JSON: {"memories": [{"content": "...", "type": "semantic|episodic|procedural", "salience": 0.0-1.0, "topic": "work|personal|learning|health|other"}]}
+
+
+Example:
+
+Input: "I love football"
+Output: {"memories": [{"content": "User loves football", "type": "episodic", "salience": 1.0, "topic": "personal"}]}
+
+Input: "I have a meeting at 10am"
+Output: {"memories": [{"content": "User has a meeting at 10am", "type": "episodic", "salience": 1.0, "topic": "work"}]}
+"""
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -785,6 +905,27 @@ Return JSON: {"memories": [{"content": "...", "type": "semantic|episodic|procedu
     def run_consolidation(
         self, weight_threshold: float = 0.6, merge_similar: bool = True
     ) -> str:
+        """
+        Performs a deep, graph-wide consolidation of memories.
+
+        This is a more intensive process than the per-conversation consolidation.
+        It identifies strongly connected components in the graph and extracts
+        higher-level profile insights from them.
+
+        Args:
+            weight_threshold: Minimum association strength to consider for profile extraction.
+            merge_similar: If True, execute a passes to deduplicate near-identical nodes (>0.95 sim).
+
+        Returns:
+            A summary of performed consolidation actions.
+
+        Example:
+            ```python
+            # Force a deep consolidation
+            results = ms.run_consolidation(merge_similar=True)
+            print(results)
+            ```
+        """
         results = []
         print("🔄 Running consolidation...")
 
