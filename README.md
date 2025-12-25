@@ -31,10 +31,16 @@ Unlike traditional database sharding by ID, Lazzaro shards memories semantically
 *   **Shard Inference**: When new facts are extracted, Lazzaro uses an LLM to categorize them into existing or new shards.
 *   **Retrieval Heuristic**: To maintain low latency, Lazzaro prioritizes recently accessed shards and those with higher node density for initial search.
 
-### 2. The Buffer Graph
+### 2. Vector Storage (LanceDB Backend)
+Lazzaro utilizes **LanceDB** for high-performance vector operations and persistent storage.
+*   **Fast Retrieval**: Sub-millisecond vector search across thousands of nodes.
+*   **Integrated Persistence**: Optimized on-disk storage that works alongside the graph structure.
+*   **Automatic Sync**: LanceDB is automatically synchronized with graph operations like node merging and pruning.
+
+### 3. The Buffer Graph
 The `BufferGraph` manages the global state of all shards and super-nodes. It handles:
 *   **Node Integrity**: Maintaining content, embeddings, salience, and access metrics.
-*   **Edge Weighting**: Tracking the strength of associations between memories based on co-occurrence and semantic similarity.
+*   **Edge Weighting**: Tracking the strength of associations between memories.
 
 ### 3. Hierarchical Clustering (Super-Nodes)
 When a shard grows beyond a configurable threshold, Lazzaro creates "Super-Nodes". These are synthetic nodes that represent the aggregate content of a cluster.
@@ -49,7 +55,7 @@ Every interaction (user message and assistant response) is initially cached in a
 ### Stage 2: Asynchronous Consolidation
 Lazzaro runs a multi-stage background process to move buffer data into long-term storage:
 1.  **Atomic Fact Extraction**: An LLM extracts discrete facts from the conversation stream.
-2.  **Deduplication**: New facts are compared against existing nodes in the target shard. If a match is found (cosine similarity > 0.95), the existing node's salience and access count are boosted instead of creating a duplicate.
+2.  **Deduplication**: New facts are compared against the entire memory base using **LanceDB vector search**. If a near-identical match (similarity > 0.95) is found, the existing node's salience and access count are boosted.
 3.  **Graph Linking**: New nodes are linked to each other (episodic link) and to semantically related existing nodes (associative link).
 4.  **Profile Update**: Relevant facts are used to refine the multi-domain User Profile.
 
@@ -74,7 +80,7 @@ Updates occur during consolidation, where an LLM synthesizes new interactions in
 
 Retrieval is optimized for both speed and relevance:
 *   **Shard Selection**: Only the most relevant shards are searched based on the query.
-*   **Hybrid Search**: Combines cosine similarity of embeddings with recency weighting and salience scores.
+*   **Hybrid Search**: Combines **LanceDB vector search** for semantic relevance with hierarchical pathing and recency weighting.
 *   **Associative Boosting**: When a node is retrieved, its immediate neighbors in the graph receive a temporary "accessibility boost," pulling related memories into the current context.
 *   **Query Caching**: Frequent queries are cached to minimize LLM and embedding overhead.
 
@@ -116,7 +122,7 @@ For a high-fidelity, interactive experience, Lazzaro includes a custom web-based
 lazzaro-dashboard
 ```
 
-![Lazzaro Dashboard Preview](assets/dashboard_preview.png)
+![Lazzaro Dashboard Preview](https://raw.githubusercontent.com/thelaycon/lazzaro/main/assets/dashboard_preview.png)
 
 The dashboard will be available at `http://localhost:5299` and features:
 *   **Live Force-Graph**: Interactive visualization of your memory shards and node relationships.
@@ -178,7 +184,8 @@ lazzaro-cli
 ## Persistence and Safety
 
 *   **Atomic Persistence**: Lazzaro writes to a temporary file before renaming it to `lazzaro.pkl` to prevent corruption during crashes.
-*   **Backup System**: A `.bak` file is maintained as a fallback to the previous valid state.
+*   **Vector Database**: High-performance persistent vector data is stored in the `db/lancedb/` directory using the Lance format.
+*   **Backup System**: A `.bak` file is maintained as a fallback for the primary graph state.
 *   **JSON Export**: Human-readable snapshots can be exported using `save_state()`.
 
 ## Development

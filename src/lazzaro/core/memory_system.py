@@ -15,6 +15,7 @@ from .persistence import PersistenceManager
 from .profile import Profile
 from .providers import OpenAIEmbedder, OpenAILLM
 from .query_cache import QueryCache
+from .vector_store import LanceDBVectorStore
 
 
 class MemorySystem:
@@ -77,6 +78,7 @@ class MemorySystem:
         load_from_disk: bool = True,
         llm_provider: Optional[LLMProvider] = None,
         embedding_provider: Optional[EmbeddingProvider] = None,
+        db_dir: str = "db",
     ):
         self.model = model
 
@@ -95,7 +97,8 @@ class MemorySystem:
         self.super_nodes: Dict[str, Node] = {}
         self.buffer = BufferGraph(self.shards, self.super_nodes)
         self.profile = Profile()
-        self.persistence = PersistenceManager()
+        self.persistence = PersistenceManager(db_dir=db_dir)
+        self.vector_store = LanceDBVectorStore(db_dir=db_dir)
 
         self.enable_sharding = enable_sharding
         self.enable_hierarchy = enable_hierarchy
@@ -448,6 +451,7 @@ class MemorySystem:
 
         retrieved = []
 
+        # 1. Hierarchical Retrieval (Fast path for high-level concepts)
         if self.enable_hierarchy and self.super_nodes:
             super_scores = []
             for super_id, super_node in self.super_nodes.items():
@@ -468,47 +472,37 @@ class MemorySystem:
                         self.query_cache.set_results(query_text, retrieved[:5])
                     return retrieved[:5]
 
-        relevant_shards = self._get_relevant_shards(query_text)
-        all_scores = []
-        for shard_key in relevant_shards:
-            if shard_key not in self.shards:
-                continue
-
-            shard = self.shards[shard_key]
-            shard.last_accessed = time.time()
-            shard.access_count += 1
-
-            for node_id, node in shard.nodes.items():
-                if node.is_super_node:
-                    continue
-                sim = self._cosine_similarity(query_emb, node.embedding)
-                days_old = (time.time() - node.last_accessed) / 86400
-                recency_factor = 0.95**days_old
-                score = sim * recency_factor
-                all_scores.append((node_id, score))
-
-        all_scores.sort(key=lambda x: x[1], reverse=True)
-
-        # Filter duplicates and select top 5
+        # 2. Vector Store Retrieval (LanceDB)
+        limit = 10 if not retrieved else 5
+        vector_ids = self.vector_store.search(query_emb, limit=limit)
+        
+        # Merge results, prioritizing hierarchical if any, then vector
+        seen_ids = set(retrieved)
         seen_content = set()
-        for nid, score in all_scores:
-            if score <= 0.25:
-                continue
-
-            if len(retrieved) >= 5:
-                break
-
-            node = self.buffer.get_node(nid)
+        
+        # Deduplicate based on ID first
+        final_retrieved = []
+        for rid in retrieved:
+            node = self.buffer.get_node(rid)
             if node:
-                # Deduplication: specific enough content shouldn't be repeated
-                if node.content in seen_content:
-                    continue
                 seen_content.add(node.content)
-                retrieved.append(nid)
+                final_retrieved.append(rid)
+
+        for rid in vector_ids:
+            if rid not in seen_ids:
+                node = self.buffer.get_node(rid)
+                if node:
+                    # Deduplication by content
+                    if node.content not in seen_content:
+                        seen_content.add(node.content)
+                        final_retrieved.append(rid)
+                        seen_ids.add(rid)
+
+        final_retrieved = final_retrieved[:5]
 
         if self.query_cache:
-            self.query_cache.set_results(query_text, retrieved)
-        return retrieved
+            self.query_cache.set_results(query_text, final_retrieved)
+        return final_retrieved
 
     def _get_relevant_shards(self, query: str, max_shards: int = 3) -> List[str]:
         if not self.enable_sharding or not self.shards:
@@ -566,6 +560,10 @@ class MemorySystem:
                             del shard.edges[key]
 
             if removed_count > 0:
+                # Sync with LanceDB
+                to_remove_ids = [nid for nid, _, _ in to_remove]
+                self.vector_store.delete(to_remove_ids)
+                
                 print(
                     f"⚠ Buffer limit reached! Archived {removed_count} old nodes (limit: {self.max_buffer_size})"
                 )
@@ -700,7 +698,7 @@ Output: {"memories": [{"content": "User loves football", "type": "episodic", "sa
         contents = [m.get("content", "") for m in memories if m.get("content")]
         embeddings = self._batch_embed(contents)
 
-        new_nodes = []
+        new_nodes_data = []
         for i, mem in enumerate(memories):
             content = mem.get("content", "")
             if not content or len(content) < 5:
@@ -709,39 +707,36 @@ Output: {"memories": [{"content": "User loves football", "type": "episodic", "sa
             shard_key = mem.get("topic", self._infer_shard_key(content))
             shard = self._get_or_create_shard(shard_key)
 
-            # Check for existing duplicate in this shard via semantic similarity
-            existing_node = None
+            # Check for existing duplicate via Vector Store
             new_emb = embeddings[i] if i < len(embeddings) else []
+            existing_node = None
             
             if new_emb:
-                best_sim = 0
-                for n in shard.nodes.values():
-                    if n.is_super_node:
-                        continue
-                    sim = self._cosine_similarity(new_emb, n.embedding)
-                    if sim > best_sim:
-                        best_sim = sim
-                        existing_node = n
-                
-                if best_sim < 0.95:
-                    existing_node = None
+                results = self.vector_store.search(new_emb, limit=1)
+                if results:
+                    best_match_id = results[0]
+                    # We still check local shards for the actual node object
+                    # In a full LanceDB migration, we'd load it from LanceDB
+                    best_node = self.buffer.get_node(best_match_id)
+                    if best_node:
+                        sim = self._cosine_similarity(new_emb, best_node.embedding)
+                        if sim > 0.95:
+                            existing_node = best_node
 
             if existing_node:
-                # Merge into existing: update content if the new one is significantly different or longer?
-                # For now, just boost metrics
                 existing_node.salience = max(
                     existing_node.salience, mem.get("salience", 0.5)
                 )
                 existing_node.last_accessed = time.time()
                 existing_node.access_count += 1
-                print(f"   (Merged semantic duplicate into {existing_node.id}, sim: {best_sim:.3f})")
+                print(f"   (Merged semantic duplicate into {existing_node.id})")
                 continue
 
             node_id = self._generate_node_id()
             node = Node(
                 id=node_id,
                 content=content,
-                embedding=embeddings[i] if i < len(embeddings) else [],
+                embedding=new_emb,
                 type=mem.get("type", "semantic"),
                 salience=mem.get("salience", 0.5),
                 shard_key=shard_key,
@@ -749,6 +744,20 @@ Output: {"memories": [{"content": "User loves football", "type": "episodic", "sa
 
             shard.add_node(node)
             new_nodes.append((node_id, shard_key))
+            
+            # Prepare for Vector Store insertion
+            new_nodes_data.append({
+                "id": node_id,
+                "content": content,
+                "embedding": new_emb,
+                "type": node.type,
+                "salience": node.salience,
+                "shard_key": node.shard_key,
+                "timestamp": node.timestamp
+            })
+
+        if new_nodes_data:
+            self.vector_store.add(new_nodes_data)
 
         self._link_within_shards(new_nodes)
         self._link_to_existing_memories(new_nodes)
@@ -1087,6 +1096,18 @@ Example: {"preferences": "User prefers Python for data science.", "knowledge_dom
 
                 processed.add(nid2)
                 merged_count += 1
+                
+                # Sync with LanceDB: Delete merged node, update original node
+                self.vector_store.delete([nid2])
+                self.vector_store.add([{
+                    "id": nid1,
+                    "content": node1.content,
+                    "embedding": node1.embedding,
+                    "type": node1.type,
+                    "salience": node1.salience,
+                    "shard_key": node1.shard_key,
+                    "timestamp": node1.timestamp
+                }])
         return merged_count
 
     def get_stats(self) -> Dict:
@@ -1107,6 +1128,8 @@ Example: {"preferences": "User prefers Python for data science.", "knowledge_dom
             else 0
         )
         cache_hit_rate = self.query_cache.get_hit_rate() if self.query_cache else 0.0
+        
+        vector_store_active = self.vector_store is not None
 
         return {
             "buffer_nodes": nodes,
@@ -1118,6 +1141,7 @@ Example: {"preferences": "User prefers Python for data science.", "knowledge_dom
             "conversation_count": self.conversation_count,
             "profile_domains_filled": sum(1 for v in self.profile.data.values() if v),
             "auto_consolidate": self.auto_consolidate,
+            "vector_store": "LanceDB (Active)" if vector_store_active else "None",
             "performance": {
                 "avg_retrieval_ms": f"{avg_retrieval:.1f}",
                 "p95_retrieval_ms": f"{p95_retrieval:.1f}",
@@ -1282,3 +1306,29 @@ STORAGE:
             self.query_cache.cache = state.get("query_cache")
 
         print(f"✓ Restored state from disk ({len(self.buffer.nodes)} nodes)")
+        
+        # Ensure LanceDB is synced
+        if self.buffer.nodes:
+            # Check if LanceDB is empty (quick check via search)
+            try:
+                # Search for anything with a dummy embedding
+                test_results = self.vector_store.search([0.0] * 1536, limit=1)
+                if not test_results:
+                    print("🔄 Syncing LanceDB with loaded nodes...")
+                    all_nodes_data = []
+                    for node in self.buffer.nodes.values():
+                        if not node.is_super_node:
+                            all_nodes_data.append({
+                                "id": node.id,
+                                "content": node.content,
+                                "embedding": node.embedding,
+                                "type": node.type,
+                                "salience": node.salience,
+                                "shard_key": node.shard_key,
+                                "timestamp": node.timestamp
+                            })
+                    if all_nodes_data:
+                        self.vector_store.add(all_nodes_data)
+                        print(f"✓ Synced {len(all_nodes_data)} nodes to LanceDB")
+            except Exception as e:
+                print(f"⚠ Error syncing LanceDB: {e}")

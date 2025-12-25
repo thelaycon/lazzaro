@@ -51,3 +51,26 @@ class EmbeddingProvider(Protocol):
     def batch_embed(self, texts: List[str]) -> List[List[float]]:
         """Embed a batch of strings."""
         ...
+
+class VectorStore(Protocol):
+    """
+    Protocol for vector storage and semantic search.
+    
+    Any class implementing this protocol can be used as the vector backend
+    for MemorySystem to enable efficient similarity retrieval.
+    """
+    def add(self, nodes: List[Dict[str, Any]]):
+        """Add a batch of nodes to the vector store."""
+        ...
+    
+    def search(self, query_emb: List[float], limit: int = 5) -> List[str]:
+        """Search for the most similar nodes given a query embedding."""
+        ...
+    
+    def delete(self, node_ids: List[str]):
+        """Delete specific nodes by their IDs."""
+        ...
+    
+    def close(self):
+        """Close the connection to the vector store."""
+        ...

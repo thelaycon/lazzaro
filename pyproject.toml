@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lazzaro"
-version = "0.1.2.3"
+version = "0.2.0"
 description = "A scalable memory system for AI agents using graph-based sharding and hierarchical clustering."
 readme = "README.md"
 authors = [
@@ -21,6 +21,8 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "jinja2",
+    "lancedb",
+    "pyarrow",
 ]
 
 [project.scripts]

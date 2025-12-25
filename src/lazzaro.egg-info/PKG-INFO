@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: lazzaro
-Version: 0.1.2.3
+Version: 0.2.0
 Summary: A scalable memory system for AI agents using graph-based sharding and hierarchical clustering.
 Author-email: Tobi Balogun <tobitobitobiwhy@gmail.com>
 License: MIT
@@ -126,7 +126,7 @@ print(response)
 print(ms.end_conversation())
 ```
 
-### Visual Dashboard (Premium)
+### Visual Dashboard
 
 For a high-fidelity, interactive experience, Lazzaro includes a custom web-based dashboard:
 
@@ -134,11 +134,12 @@ For a high-fidelity, interactive experience, Lazzaro includes a custom web-based
 lazzaro-dashboard
 ```
 
+![Lazzaro Dashboard Preview](https://raw.githubusercontent.com/thelaycon/lazzaro/main/assets/dashboard_preview.png)
+
 The dashboard will be available at `http://localhost:5299` and features:
 *   **Live Force-Graph**: Interactive visualization of your memory shards and node relationships.
 *   **Real-time Metrics**: Monitor LLM calls, embedding costs, and retrieval latency.
 *   **Profile Explorer**: View your evolved user persona domains in a sleek side drawer.
-*   **Direct Chat**: Interact with Lazzaro and watch the graph evolve as memories are consolidated.
 
 ### Integrations
 
