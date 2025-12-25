@@ -2,88 +2,37 @@
 
 **Scalable Memory System Library for AI Agents**
 
-Lazzaro is a Python library that provides AI agents with long-term, scalable, and structured memory. Moving beyond simple vector databases, Lazzaro implements a graph-based memory architecture featuring semantic sharding, hierarchical clustering, and biological-inspired decay. It simulates human memory by maintaining an active context buffer, consolidating interactions into persistent structures, and evolving a multi-domain user profile.
+Lazzaro is a high-performance Python library for long-term, structured agent memory. It goes beyond simple vector search by implementing a graph-based architecture with semantic sharding, hierarchical clustering, and biological-inspired decay. It evolves a multi-domain user profile through continuous conversation consolidation.
 
 ## Installation
-
-Install the core library:
 
 ```bash
 pip install lazzaro
 ```
 
-### Optional Dependencies
-
-Enable specific providers or features:
-
-*   **Google Gemini**: `pip install google-generativeai`
-*   **Together AI**: `pip install together`
-*   **LangChain**: `pip install langchain-core`
-*   **Autogen**: `pip install pyautogen`
-*   **Visualization**: `pip install matplotlib plotly`
+*   **Extensions**: `google-generativeai`, `together` (LLMs), `langchain-core` (Integrations), `matplotlib` (Visualization).
 
 ## Core Architecture
 
-Lazzaro manages memory through a multi-layered graph system.
+Lazzaro organizes memory as a multi-layered graph optimized for scale:
 
-### 1. Memory Shards (Topic-Based Isolation)
-Unlike traditional database sharding by ID, Lazzaro shards memories semantically. Each `MemoryShard` acts as an independent subgraph containing nodes and edges related to a specific topic (e.g., "coding", "personal health", "travel").
-*   **Shard Inference**: When new facts are extracted, Lazzaro uses an LLM to categorize them into existing or new shards.
-*   **Retrieval Heuristic**: To maintain low latency, Lazzaro prioritizes recently accessed shards and those with higher node density for initial search.
+-   **Semantic Shards**: Topic-based subgraphs (e.g., "coding", "health") that provide natural isolation and accelerated retrieval.
+-   **LanceDB Backed**: Persistent storage of the entire graph (nodes, edges, profile) with sub-millisecond vector performance.
+-   **Hierarchical super-nodes**: Summary nodes representing large clusters, allowing for abstract reasoning and fast top-down search.
+-   **Multi-User Factory**: Native multi-tenant support with B-Tree optimized user partitioning.
 
-### 2. Vector Storage (LanceDB Persistence)
-Lazzaro utilizes **LanceDB** as its primary persistence layer and high-performance vector engine.
-*   **Full State Retention**: Unlike basic vector stores, LanceDB persists the entire memory graph, including nodes, edges, and the evolved user profile.
-*   **Fast Retrieval**: Sub-millisecond vector search across thousands of nodes.
-*   **Scalable Architecture**: Optimized on-disk storage that enables multi-process synchronization and reliable data integrity.
-*   **Automatic Sync**: LanceDB is automatically synchronized during all graph operations, ensuring no data loss between sessions.
+## Memory Lifecycle
 
-### 3. The Buffer Graph
-The `BufferGraph` manages the global state of all shards and super-nodes. It handles:
-*   **Node Integrity**: Maintaining content, embeddings, salience, and access metrics.
-*   **Edge Weighting**: Tracking the strength of associations between memories.
+1.  **Episodic Buffer**: Immediate caching of conversations for short-term context.
+2.  **Background Consolidation**: Asynchronous LLM extraction of atomic facts, deduplication via LanceDB, and associative graph linking.
+3.  **Temporal Decay & Pruning**: Biological-inspired pruning where weak associations fade and salience decays non-linearly to prevent memory bloat.
 
-### 3. Hierarchical Clustering (Super-Nodes)
-When a shard grows beyond a configurable threshold, Lazzaro creates "Super-Nodes". These are synthetic nodes that represent the aggregate content of a cluster.
-*   **Accelerated Search**: Retrieval begins at the super-node level to quickly narrow down relevant subgraphs.
-*   **Abstract Reasoning**: Super-nodes allow agents to access high-level summaries of broad topics without loading every individual memory.
+## User Profile & Retrieval
 
-## The Memory Lifecycle
-
-### Stage 1: Short-Term Buffer
-Every interaction (user message and assistant response) is initially cached in a short-term episodic buffer. This provides immediate context for the current conversation.
-
-### Stage 2: Asynchronous Consolidation
-Lazzaro runs a multi-stage background process to move buffer data into long-term storage:
-1.  **Atomic Fact Extraction**: An LLM extracts discrete facts from the conversation stream.
-2.  **Deduplication**: New facts are compared against the entire memory base using **LanceDB vector search**. If a near-identical match (similarity > 0.95) is found, the existing node's salience and access count are boosted.
-3.  **Graph Linking**: New nodes are linked to each other (episodic link) and to semantically related existing nodes (associative link).
-4.  **Profile Update**: Relevant facts are used to refine the multi-domain User Profile.
-
-### Stage 3: Temporal Decay and Pruning
-Lazzaro prevents memory bloat through biological-inspired pruning:
-*   **Sigmoidal Decay**: Node salience and edge weights decrease over time. The decay follows a non-linear curve that flattens at 0.2, ensuring important memories persist longer while weak associations fade.
-*   **Weak Edge Pruning**: Edges with weights falling below a threshold (default 0.5) are automatically removed.
-*   **Buffer Enforcement**: If the total node count exceeds `max_buffer_size`, the system archives the least salient nodes to maintain performance.
-
-## User Profile Evolution
-
-Lazzaro maintains a structured `Profile` across five key domains:
-*   **Preferences**: Specific likes, dislikes, and technical choices.
-*   **Personality Traits**: The user's observed demeanor and values.
-*   **Knowledge Domains**: Areas where the user exhibits expertise or deep interest.
-*   **Interaction Style**: How the user prefers to communicate (e.g., concise, formal, technical).
-*   **Key Experiences**: Significant life events or project milestones.
-
-Updates occur during consolidation, where an LLM synthesizes new interactions into existing profile fields.
-
-## Retrieval Engine
-
-Retrieval is optimized for both speed and relevance:
-*   **Shard Selection**: Only the most relevant shards are searched based on the query.
-*   **Hybrid Search**: Combines **LanceDB vector search** for semantic relevance with hierarchical pathing and recency weighting.
-*   **Associative Boosting**: When a node is retrieved, its immediate neighbors in the graph receive a temporary "accessibility boost," pulling related memories into the current context.
-*   **Query Caching**: Frequent queries are cached to minimize LLM and embedding overhead.
+Lazzaro evolves a structured persona across five domains (Preferences, Personality, Knowledge, Style, and Experiences). Retrieval uses a hybrid approach:
+-   **Sharded Semantic Search**: Narrowing the search space to relevant subgraphs.
+-   **Associative Boosting**: High-salience nodes pull their neighbors into the current context buffer.
+-   **Optimized Retrieval**: Combines vector similarity with hierarchical pathing and frequency metrics.
 
 ## Usage
 

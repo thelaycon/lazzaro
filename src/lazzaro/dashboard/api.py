@@ -32,7 +32,41 @@ async def get_stats():
     if not _ms:
         return {"error": "Memory system not initialized"}
     _ms.check_for_updates()
-    return _ms.get_stats()
+    stats = _ms.get_stats()
+    stats["user_id"] = _ms.user_id # Add current user_id to stats
+    return stats
+
+@app.get("/api/users")
+async def get_users():
+    if not _ms:
+        return []
+    return _ms.get_all_users()
+
+@app.post("/api/users/switch")
+async def switch_user(request: Request):
+    if not _ms:
+        return {"error": "Memory system not initialized"}
+    data = await request.json()
+    new_user_id = data.get("user_id")
+    if not new_user_id:
+        return {"error": "User ID required"}
+    
+    _ms.switch_user(new_user_id)
+    return {"status": "success", "user_id": _ms.user_id}
+
+@app.get("/api/insights")
+async def get_insights():
+    if not _ms:
+        return {"error": "Memory system not initialized"}
+    insights = _ms.get_insights()
+    return {"insights": insights}
+
+@app.get("/api/export")
+async def export_observations(format: str = "markdown"):
+    if not _ms:
+        return {"error": "Memory system not initialized"}
+    content = _ms.export_observations(format=format)
+    return {"content": content}
 
 @app.get("/api/graph")
 async def get_graph():

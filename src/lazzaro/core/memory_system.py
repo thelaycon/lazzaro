@@ -1426,6 +1426,122 @@ STORAGE:
             # Table might not exist yet or connection closed
             pass
         return False
+
+    def get_all_users(self) -> List[str]:
+        """
+        Returns a list of all unique user IDs present in the node store.
+        """
+        if not hasattr(self.store, "_nodes_table") or self.store._nodes_table is None:
+            return [self.user_id]
+        
+        # In LanceDB, we can search without a vector and use SQL-like selection
+        results = self.store._nodes_table.search().select(["user_id"]).to_list()
+        return list(set(r["user_id"] for r in results))
+
+    def get_connected_memories(self, node_id: str) -> List[Node]:
+        """
+        Returns all nodes directly connected to the specified node ID.
+        """
+        connected_ids = set()
+        for shard in self.shards.values():
+            for (src, tgt) in shard.edges.keys():
+                if src == node_id:
+                    connected_ids.add(tgt)
+                elif tgt == node_id:
+                    connected_ids.add(src)
+        
+        results = []
+        for nid in connected_ids:
+            node = self.buffer.get_node(nid)
+            if node:
+                results.append(node)
+        return results
+
+    def search_memories(self, query: str, limit: int = 5) -> List[Node]:
+        """
+        Performs a semantic search for memories related to the query string.
+        """
+        query_emb = self._get_embedding(query)
+        node_ids = self.vector_store.search_nodes(query_emb, user_id=self.user_id, limit=limit)
+        
+        results = []
+        for nid in node_ids:
+            node = self.buffer.get_node(nid)
+            if node:
+                results.append(node)
+        return results
+
+    def switch_user(self, new_user_id: str):
+        """
+        Switches the memory system context to a different user.
+        Persists current state and reloads the new user's memories.
+        """
+        if self.conversation_active:
+            self.end_conversation()
+        else:
+            self._save_to_persistence()
+        
+        self.user_id = new_user_id
+        self._load_from_persistence()
+        print(f"👤 Switched context to user: {new_user_id}")
+
+    def export_observations(self, format: str = "markdown") -> str:
+        """
+        Exports the most salient memories for the current user in a structured format.
+        
+        Args:
+            format: "markdown" or "json".
+            
+        Returns:
+            A string containing the exported observations.
+        """
+        nodes = []
+        for shard in self.shards.values():
+            for node in shard.nodes.values():
+                if not node.is_super_node:
+                    nodes.append(node)
+        
+        # Sort by salience and recency
+        nodes.sort(key=lambda n: (n.salience, n.last_accessed), reverse=True)
+        
+        if format == "json":
+            return json.dumps([n.to_dict() for n in nodes[:50]], indent=2)
+        
+        # Default to Markdown
+        lines = [f"# Memory Observations for {self.user_id}", ""]
+        for n in nodes[:50]:
+            lines.append(f"### {n.type.capitalize()} Memory ({n.shard_key})")
+            lines.append(f"- **Content**: {n.content}")
+            lines.append(f"- **Salience**: {n.salience:.2f}")
+            lines.append(f"- **Last Accessed**: {time.ctime(n.last_accessed)}")
+            lines.append("")
+        
+        return "\n".join(lines)
+
+    def get_insights(self) -> str:
+        """
+        Uses the LLM to analyze the entire memory graph and extract high-level 
+        personality, preference, and knowledge insights.
+        """
+        observations = self.export_observations(format="json")
+        system_prompt = f"""Analyze these atomic memories for user '{self.user_id}' and provide a comprehensive psychological and knowledge profile. 
+Identify long-term patterns, core beliefs, persistent interests, and significant life events reflected in the data.
+
+Structure your response as:
+1. **Personality Traits**: Key characteristics detected.
+2. **Core Interests & Knowledge**: What the user knows and cares about.
+3. **Behavioral Patterns**: How the user typically interacts or works.
+4. **Recent Focus**: Most salient topics from recent memories.
+
+Be clinical yet insightful. Do not include conversational filler."""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"User Observations:\n{observations}"}
+        ]
+        
+        return self._call_llm(messages)
+
     def close(self):
         """Closes the memory system and its storage connections."""
         if hasattr(self, "store"):

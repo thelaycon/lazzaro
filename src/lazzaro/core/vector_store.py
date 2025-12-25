@@ -51,6 +51,8 @@ class LanceDBStore:
             self._nodes_table = self.db.open_table(self.nodes_table_name)
         else:
             self._nodes_table = self.db.create_table(self.nodes_table_name, schema=node_schema, exist_ok=True)
+            # Create scalar index for fast multi-tenant filtering
+            self._nodes_table.create_scalar_index("user_id", index_type="BTREE")
 
         # 2. Edges Table
         edge_schema = pa.schema([
