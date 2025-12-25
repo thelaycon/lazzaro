@@ -1,0 +1,3 @@
+[console_scripts]
+lazzaro-cli = lazzaro.cli.main:entry_point
+lazzaro-dashboard = lazzaro.dashboard.api:entry_point

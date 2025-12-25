@@ -1,0 +1,8 @@
+openai
+numpy
+networkx
+matplotlib
+plotly
+fastapi
+uvicorn
+jinja2

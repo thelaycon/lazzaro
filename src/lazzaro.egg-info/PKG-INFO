@@ -1,3 +1,21 @@
+Metadata-Version: 2.4
+Name: lazzaro
+Version: 0.1.2.3
+Summary: A scalable memory system for AI agents using graph-based sharding and hierarchical clustering.
+Author-email: Tobi Balogun <tobitobitobiwhy@gmail.com>
+License: MIT
+Project-URL: Homepage, https://github.com/thelaycon/lazzaro
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: openai
+Requires-Dist: numpy
+Requires-Dist: networkx
+Requires-Dist: matplotlib
+Requires-Dist: plotly
+Requires-Dist: fastapi
+Requires-Dist: uvicorn
+Requires-Dist: jinja2
+
 # Lazzaro
 
 **Scalable Memory System Library for AI Agents**
@@ -108,7 +126,7 @@ print(response)
 print(ms.end_conversation())
 ```
 
-### Visual Dashboard
+### Visual Dashboard (Premium)
 
 For a high-fidelity, interactive experience, Lazzaro includes a custom web-based dashboard:
 
@@ -116,12 +134,11 @@ For a high-fidelity, interactive experience, Lazzaro includes a custom web-based
 lazzaro-dashboard
 ```
 
-![Lazzaro Dashboard Preview](assets/dashboard_preview.png)
-
 The dashboard will be available at `http://localhost:5299` and features:
 *   **Live Force-Graph**: Interactive visualization of your memory shards and node relationships.
 *   **Real-time Metrics**: Monitor LLM calls, embedding costs, and retrieval latency.
 *   **Profile Explorer**: View your evolved user persona domains in a sleek side drawer.
+*   **Direct Chat**: Interact with Lazzaro and watch the graph evolve as memories are consolidated.
 
 ### Integrations
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lazzaro"
-version = "0.1.2.2"
+version = "0.1.2.3"
 description = "A scalable memory system for AI agents using graph-based sharding and hierarchical clustering."
 readme = "README.md"
 authors = [
@@ -18,10 +18,14 @@ dependencies = [
     "networkx",
     "matplotlib",
     "plotly",
+    "fastapi",
+    "uvicorn",
+    "jinja2",
 ]
 
 [project.scripts]
 lazzaro-cli = "lazzaro.cli.main:entry_point"
+lazzaro-dashboard = "lazzaro.dashboard.api:entry_point"
 
 [project.urls]
 Homepage = "https://github.com/thelaycon/lazzaro"
