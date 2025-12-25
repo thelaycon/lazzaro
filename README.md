@@ -54,6 +54,12 @@ Launch the interactive force-graph explorer:
 lazzaro-dashboard
 ```
 
+- **Live Force-Graph**: Interactive visualization of memory shards.
+- **User Explorer**: Switch between multi-tenant graphs.
+- **Insights**: Full-screen LLM personality and knowledge analysis.
+
+![Lazzaro Dashboard Preview](https://raw.githubusercontent.com/thelaycon/lazzaro/main/assets/dashboard_preview.png)
+
 ## Integrations
 
 - **LangChain**: `LazzaroLangChainMemory`
