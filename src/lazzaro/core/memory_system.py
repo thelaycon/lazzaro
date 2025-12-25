@@ -654,18 +654,19 @@ class MemorySystem:
         print(f"🔄 Processing {len(all_memories)} memories in background...")
 
         conv_text = json.dumps(all_memories)
-        system_prompt = """Extract distinct, atomic facts from this conversation. Should be about the user, don't return word for word:
+        system_prompt = """Extract distinct, atomic facts from this conversation.
+Guidelines:
+1. Facts must be about the user or their preferences/experiences.
+2. Formulate facts in the THIRD PERSON (e.g., 'The user likes...' not 'I like...').
+3. Abstract the fact from conversational filler (e.g., 'User prefers Python' instead of 'The user said they prefer Python').
+4. DO NOT return raw messages word-for-word.
+5. If no new factual information is found, return an empty list of memories.
 
 Return JSON: {"memories": [{"content": "...", "type": "semantic|episodic|procedural", "salience": 0.0-1.0, "topic": "work|personal|learning|health|other"}]}
 
-
 Example:
-
 Input: "I love football"
 Output: {"memories": [{"content": "User loves football", "type": "episodic", "salience": 1.0, "topic": "personal"}]}
-
-Input: "I have a meeting at 10am"
-Output: {"memories": [{"content": "User has a meeting at 10am", "type": "episodic", "salience": 1.0, "topic": "work"}]}
 """
 
         messages = [
@@ -708,21 +709,32 @@ Output: {"memories": [{"content": "User has a meeting at 10am", "type": "episodi
             shard_key = mem.get("topic", self._infer_shard_key(content))
             shard = self._get_or_create_shard(shard_key)
 
-            # Check for existing duplicate in this shard
+            # Check for existing duplicate in this shard via semantic similarity
             existing_node = None
-            for n in shard.nodes.values():
-                if n.content == content:
-                    existing_node = n
-                    break
+            new_emb = embeddings[i] if i < len(embeddings) else []
+            
+            if new_emb:
+                best_sim = 0
+                for n in shard.nodes.values():
+                    if n.is_super_node:
+                        continue
+                    sim = self._cosine_similarity(new_emb, n.embedding)
+                    if sim > best_sim:
+                        best_sim = sim
+                        existing_node = n
+                
+                if best_sim < 0.95:
+                    existing_node = None
 
             if existing_node:
-                # Merge into existing
+                # Merge into existing: update content if the new one is significantly different or longer?
+                # For now, just boost metrics
                 existing_node.salience = max(
                     existing_node.salience, mem.get("salience", 0.5)
                 )
                 existing_node.last_accessed = time.time()
                 existing_node.access_count += 1
-                print(f"   (Merged duplication into {existing_node.id})")
+                print(f"   (Merged semantic duplicate into {existing_node.id}, sim: {best_sim:.3f})")
                 continue
 
             node_id = self._generate_node_id()

@@ -6,6 +6,24 @@ from typing import Any, Optional
 
 
 class PersistenceManager:
+    """
+    Handles atomic persistence of the memory system state to disk.
+
+    PersistenceManager ensures that the graph, profile, and system metrics are
+    saved safely using a write-rename-backup strategy to prevent data corruption.
+
+    Args:
+        db_dir: Directory where the persistence files will be stored.
+        filename: Name of the primary pickle file.
+
+    Example:
+        ```python
+        pm = PersistenceManager(db_dir="my_memories")
+        pm.save(my_data)
+        loaded_data = pm.load()
+        ```
+    """
+
     def __init__(self, db_dir: str = "db", filename: str = "lazzaro.pkl"):
         self.db_dir = db_dir
         self.filename = filename
@@ -17,7 +35,8 @@ class PersistenceManager:
 
     def save(self, data: Any) -> bool:
         """
-        Save data to disk using Pickle with atomic write (write to temp then rename).
+        Saves data to disk using Pickle with atomic write (write to temp then rename).
+        Also maintains a '.bak' file of the previously successfully saved state.
         """
         try:
             temp_path = self.filepath + ".tmp"
@@ -27,8 +46,7 @@ class PersistenceManager:
             # Atomic rename
             shutil.move(temp_path, self.filepath)
 
-            # Create a backup occasionally or overwrite previous backup?
-            # For now, let's just keep one backup of the previous state
+            # Create a backup of the current valid state
             backup_path = self.filepath + ".bak"
             if os.path.exists(self.filepath):
                 shutil.copy2(self.filepath, backup_path)
@@ -40,7 +58,8 @@ class PersistenceManager:
 
     def load(self) -> Optional[Any]:
         """
-        Load data from disk. Returns None if file doesn't exist or error.
+        Loads data from disk. Falls back to the '.bak' file if the primary file fails.
+        Returns None if no persistence files are found.
         """
         if not os.path.exists(self.filepath):
             return None
@@ -62,4 +81,5 @@ class PersistenceManager:
             return None
 
     def exists(self) -> bool:
+        """Checks if the primary persistence file exists."""
         return os.path.exists(self.filepath)

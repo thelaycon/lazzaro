@@ -1,7 +1,18 @@
 from typing import List, Dict, Any, Protocol, Optional
 
 class LLMProvider(Protocol):
-    """Protocol for LLM interactions."""
+    """
+    Protocol for LLM interactions.
+    
+    Any class implementing this protocol can be used as the logic engine in MemorySystem.
+
+    Example:
+        ```python
+        class MyLLM(LLMProvider):
+            def completion(self, messages, response_format=None):
+                return "Simulated response"
+        ```
+    """
     def completion(self, messages: List[Dict[str, str]], response_format: Dict = None) -> str:
         """
         Generate a completion for the given messages.
@@ -20,7 +31,19 @@ class LLMProvider(Protocol):
         ...
 
 class EmbeddingProvider(Protocol):
-    """Protocol for text embedding."""
+    """
+    Protocol for text embedding.
+    
+    Any class implementing this protocol can be used to generate vector representations
+    for semantic retrieval in MemorySystem.
+
+    Example:
+        ```python
+        class MyEmbedder(EmbeddingProvider):
+            def embed(self, text):
+                return [0.1] * 1536
+        ```
+    """
     def embed(self, text: str) -> List[float]:
         """Embed a single string."""
         ...
