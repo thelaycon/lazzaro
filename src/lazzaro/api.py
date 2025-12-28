@@ -184,7 +184,31 @@ class Lazzaro:
         Returns:
             Formatted memory export.
         """
-        return self.orchestrator.export_observations(format)
+        # Simple export implementation - can be enhanced later
+        memories = []
+        for shard in self.orchestrator.shards.values():
+            for node in shard.nodes.values():
+                memories.append({
+                    "content": node.content,
+                    "type": node.type,
+                    "salience": node.salience,
+                    "category": node.shard_key,
+                    "timestamp": node.timestamp
+                })
+        
+        if format == "json":
+            import json
+            return json.dumps(memories, indent=2, default=str)
+        else:
+            # Markdown format
+            lines = ["# Memory Export\n"]
+            for i, mem in enumerate(memories, 1):
+                lines.append(f"## {i}. {mem['category']}")
+                lines.append(f"**Content:** {mem['content']}")
+                lines.append(f"**Importance:** {mem['salience']:.2f}")
+                lines.append(f"**Type:** {mem['type']}")
+                lines.append("")
+            return "\n".join(lines)
     
     def get_profile(self) -> Dict:
         """

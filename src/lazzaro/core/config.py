@@ -22,6 +22,7 @@ class MemoryConfig:
     
     # Timing and frequency
     consolidate_every: int = 3
+    auto_consolidate: bool = True
     decay_rate: float = 0.01
     
     # Provider settings
@@ -68,6 +69,7 @@ class MemoryConfig:
             max_buffer_size=int(os.getenv("LAZZARO_MAX_BUFFER_SIZE", "10")),
             prune_threshold=float(os.getenv("LAZZARO_PRUNE_THRESHOLD", "0.5")),
             consolidate_every=int(os.getenv("LAZZARO_CONSOLIDATE_EVERY", "3")),
+            auto_consolidate=os.getenv("LAZZARO_AUTO_CONSOLIDATE", "true").lower() == "true",
             decay_rate=float(os.getenv("LAZZARO_DECAY_RATE", "0.01")),
             llm_model=os.getenv("LAZZARO_LLM_MODEL", "gpt-4o-mini"),
             embedding_model=os.getenv("LAZZARO_EMBEDDING_MODEL", "text-embedding-3-small"),

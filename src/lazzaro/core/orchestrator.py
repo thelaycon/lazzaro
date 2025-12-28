@@ -13,6 +13,7 @@ from .memory_shard import MemoryShard
 from .profile import Profile
 from .query_cache import QueryCache
 from .vector_store import LanceDBStore
+from ..models.graph import Node, Edge
 
 
 class MemoryOrchestrator:
@@ -227,9 +228,11 @@ class MemoryOrchestrator:
         # Stream from LLM
         if hasattr(self.llm, "completion_stream"):
             full_response = ""
-            for chunk in self.llm.completion_stream(messages):
-                full_response += chunk
-                yield {"type": "token", "content": chunk}
+            stream = self.llm.completion_stream(messages)
+            if stream:
+                for chunk in stream:
+                    full_response += chunk
+                    yield {"type": "token", "content": chunk}
             
             # Post-stream cleanup
             self.add_to_short_term(full_response, "semantic", salience=0.5)

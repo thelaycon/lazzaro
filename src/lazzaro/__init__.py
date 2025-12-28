@@ -1,6 +1,15 @@
 # New modular API
 from .api import Lazzaro, create_lazzaro, quick_chat
 
+# Simple memory facade (when dependencies are available)
+try:
+    from .memory_facade import MemoryFacade, Memory, create_memory_facade
+except ImportError:
+    # Facade requires optional dependencies
+    MemoryFacade = None
+    Memory = None
+    create_memory_facade = None
+
 # Core components for advanced usage
 from .core.config import MemoryConfig
 from .core.orchestrator import MemoryOrchestrator
